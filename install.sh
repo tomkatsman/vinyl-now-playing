@@ -9,7 +9,7 @@ sudo apt-get install -y darkice icecast2 python3 python3-venv
 sudo cp darkice/darkice.cfg /etc/darkice.cfg
 
 # Create and set up Python virtual environment
-cd /home/pi/vinyl-now-playing
+cd /home/tom2w/vinyl-now-playing
 python3 -m venv venv
 source venv/bin/activate
 
@@ -37,8 +37,8 @@ Description=Vinyl Now Playing Metadata Service
 After=network.target
 
 [Service]
-WorkingDirectory=/home/pi/vinyl-now-playing
-ExecStart=/home/pi/vinyl-now-playing/venv/bin/python /home/pi/vinyl-now-playing/python/main.py
+WorkingDirectory=/home/tom2w/vinyl-now-playing
+ExecStart=/home/tom2w/vinyl-now-playing/venv/bin/python /home/tom2w/vinyl-now-playing/python/main.py
 Restart=always
 
 [Install]
@@ -52,8 +52,8 @@ Description=Vinyl Now Playing Web Server
 After=network.target
 
 [Service]
-WorkingDirectory=/home/pi/vinyl-now-playing
-ExecStart=/home/pi/vinyl-now-playing/venv/bin/python /home/pi/vinyl-now-playing/python/webserver.py
+WorkingDirectory=/home/tom2w/vinyl-now-playing
+ExecStart=/home/tom2w/vinyl-now-playing/venv/bin/python /home/tom2w/vinyl-now-playing/python/webserver.py
 Restart=always
 
 [Install]
