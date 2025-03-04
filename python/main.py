@@ -7,9 +7,13 @@ import hashlib
 import hmac
 
 # Vul je ACRCloud gegevens hier in!
-ACR_HOST = "identify-eu-west-1.acrcloud.com"              # bijv: "eu-west-1.api.acrcloud.com"
+ACR_HOST = "identify-eu-west-1.acrcloud.com"
 ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
 ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
+
+# Vul je Discogs gegevens hier in!
+DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
+DISCOGS_SECRET = "wVvhtEfwYjwVPZhrwDPZLMBhLqANLBvW"
 
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 
@@ -57,12 +61,38 @@ def extract_metadata(result):
 
     return title, artist, album, cover
 
+def get_album_cover_from_discogs(artist, album):
+    print(f"[INFO] Searching Discogs for cover: {artist} - {album}")
+    query = f"{artist} {album}"
+    response = requests.get(
+        "https://api.discogs.com/database/search",
+        params={
+            "q": query,
+            "format": "vinyl",
+            "key": DISCOGS_KEY,
+            "secret": DISCOGS_SECRET
+        }
+    )
+    response_json = response.json()
+    results = response_json.get("results", [])
+    
+    if results:
+        cover = results[0].get("cover_image", "")
+        print(f"[INFO] Found cover on Discogs: {cover}")
+        return cover
+    
+    print("[WARN] No cover found on Discogs.")
+    return ""
+
 while True:
     audio = capture_stream(10)
     result = recognize_audio(audio)
 
     if result.get('status', {}).get('code') == 0:
         title, artist, album, cover = extract_metadata(result)
+
+        if not cover:
+            cover = get_album_cover_from_discogs(artist, album)
 
         now_playing_data = {
             "title": title,
