@@ -8,7 +8,7 @@ import hmac
 
 
 # Vul je ACRCloud gegevens hier in!
-ACR_HOST = "identify-eu-west-1.acrcloud.com"              # bijv: "eu-west-1.api.acrcloud.com"
+ACR_HOST = "identify-eu-west-1.acrcloud.com"
 ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
 ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
 
@@ -33,7 +33,7 @@ def capture_stream(duration=10):
 def recognize_audio(audio_bytes):
     print("[INFO] Sending audio to ACRCloud for recognition...")
     timestamp = int(time.time())
-    string_to_sign = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
+    string_to_sign = f"POST\n/v1/identify\n{ACR_HOST}\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
     signature = base64.b64encode(
         hmac.new(ACR_ACCESS_SECRET.encode('utf-8'), string_to_sign.encode('utf-8'), hashlib.sha1).digest()
     ).decode('utf-8')
@@ -47,7 +47,8 @@ def recognize_audio(audio_bytes):
         'signature': signature
     }
 
-    response = requests.post("https://identify-eu-west-1.acrcloud.com/v1/identify", files=files, data=data)
+    url = f"https://{ACR_HOST}/v1/identify"
+    response = requests.post(url, files=files, data=data)
     print(f"[DEBUG] ACRCloud Response: {response.json()}")
     return response.json()
 
