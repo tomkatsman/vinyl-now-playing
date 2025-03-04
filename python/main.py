@@ -53,6 +53,7 @@ def recognize_audio(audio_bytes):
     }
 
     response = requests.post("https://identify-eu-west-1.acrcloud.com/v1/identify", files=files, data=data)
+    print("ACRCloud Full Response:", response.json())
     return response.json()
 
 
