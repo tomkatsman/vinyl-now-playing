@@ -5,19 +5,17 @@ import os
 import base64
 import hashlib
 import hmac
-import datetime
 
-# Vul hier je ACRCloud en Discogs keys in:
+# ACRCloud keys
 ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
 ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
 
+# Discogs keys
 DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
 DISCOGS_SECRET = "wVvhtEfwYjwVPZhrwDPZLMBhLqANLBvW"
 
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
-
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
-
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -27,7 +25,6 @@ def capture_stream(duration=10):
         if len(buffer) >= 44100 * 2 * duration:
             break
     return bytes(buffer)
-
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -44,20 +41,36 @@ def recognize_audio(audio_bytes):
     }
 
     response = requests.post("https://identify-eu-west-1.acrcloud.com/v1/identify", files=files, data=data)
-    return response.json()
+    result = response.json()
 
+    print("ACRCloud Response:", json.dumps(result, indent=4))  # Log de volledige response
+    return result
 
 def get_album_cover(artist, album):
-    query = f"{artist} {album}"
+    if not album:
+        query = f"{artist}"
+    else:
+        query = f"{artist} {album}"
+
+    auth = (DISCOGS_KEY, DISCOGS_SECRET)
+
     response = requests.get(
         "https://api.discogs.com/database/search",
-        params={"q": query, "format": "vinyl", "key": DISCOGS_KEY, "secret": DISCOGS_SECRET}
+        params={"q": query, "format": "vinyl"},
+        auth=auth
     )
+
+    if response.status_code != 200:
+        print(f"Discogs API failed with status {response.status_code}")
+        return ""
+
     results = response.json().get("results", [])
     if results:
+        print(f"Found cover image: {results[0].get('cover_image', '')}")
         return results[0].get("cover_image", "")
-    return ""
-
+    else:
+        print("No album cover found on Discogs.")
+        return ""
 
 while True:
     print("Capturing audio from stream...")
