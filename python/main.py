@@ -33,7 +33,7 @@ def capture_stream(duration=10):
 def recognize_audio(audio_bytes):
     print("[INFO] Sending audio to ACRCloud for recognition...")
     timestamp = int(time.time())
-    string_to_sign = f"POST\n/v1/identify\n{ACR_HOST}\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
+    string_to_sign = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
     signature = base64.b64encode(
         hmac.new(ACR_ACCESS_SECRET.encode('utf-8'), string_to_sign.encode('utf-8'), hashlib.sha1).digest()
     ).decode('utf-8')
