@@ -45,6 +45,11 @@ def recognize_audio(audio_bytes):
     }
 
     response = requests.post(f"https://{ACR_HOST}/v1/identify", files=files, data=data)
+
+    # Direct de ruwe response printen naar je terminal (en in logs als je via systemd draait)
+    print("ACRCloud Response:")
+    print(json.dumps(response.json(), indent=4))
+
     return response.json()
 
 def extract_metadata(result):
