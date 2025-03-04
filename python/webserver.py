@@ -2,7 +2,7 @@ from flask import Flask, jsonify, send_from_directory
 import json
 import os
 
-app = Flask(__name__, static_folder="../web")
+app = Flask(__name__, static_folder="web")
 
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
