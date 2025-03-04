@@ -1,19 +1,22 @@
 from flask import Flask, jsonify, send_from_directory
 import json
+import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="../web")
 
-@app.route("/now-playing")
+NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
+
+@app.route('/now-playing')
 def now_playing():
-    try:
-        with open("web/now_playing.json") as f:
-            return jsonify(json.load(f))
-    except FileNotFoundError:
-        return jsonify({"title": "Listening...", "artist": "", "cover": ""})
+    if os.path.exists(NOW_PLAYING_PATH):
+        with open(NOW_PLAYING_PATH, 'r') as f:
+            data = json.load(f)
+        return jsonify(data)
+    return jsonify({"title": "Listening...", "artist": "", "cover": ""})
 
-@app.route("/")
+@app.route('/')
 def index():
-    return send_from_directory("web", "index.html")
+    return send_from_directory(app.static_folder, 'index.html')
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

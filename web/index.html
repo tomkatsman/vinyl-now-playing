@@ -1,27 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Now Playing</title>
+    <meta charset="UTF-8">
+    <title>Vinyl Now Playing</title>
     <style>
-        body { background: black; color: white; font-family: Arial, sans-serif; text-align: center; }
-        img { max-width: 80%; margin: 20px; }
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #111;
+            color: #fff;
+        }
+        #cover {
+            width: 300px;
+            height: 300px;
+            background-color: #222;
+            background-size: cover;
+            background-position: center;
+            margin-bottom: 20px;
+        }
+        audio {
+            width: 80%;
+            max-width: 600px;
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
-    <h1 id="title">Listening...</h1>
-    <h2 id="artist"></h2>
-    <img id="cover" src="" alt="Album Cover">
+    <h1>Now Playing</h1>
+    <div id="cover"></div>
+    <div id="info"></div>
+    <audio controls autoplay>
+        <source src="http://raspberrypi2w.local:8000/vinyl.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
 
     <script>
-        function updateNowPlaying() {
-            fetch("/now-playing").then(r => r.json()).then(data => {
-                document.getElementById("title").innerText = data.title || "Listening...";
-                document.getElementById("artist").innerText = data.artist || "";
-                document.getElementById("cover").src = data.cover || "";
-            });
+        async function fetchNowPlaying() {
+            try {
+                const response = await fetch('/now-playing');
+                const data = await response.json();
+                document.getElementById('cover').style.backgroundImage = `url('${data.cover}')`;
+                document.getElementById('info').innerHTML = `<strong>${data.artist}</strong> - ${data.title}`;
+            } catch (error) {
+                console.error('Error fetching now-playing:', error);
+            }
         }
-        setInterval(updateNowPlaying, 5000);
-        updateNowPlaying();
+
+        fetchNowPlaying();
+        setInterval(fetchNowPlaying, 5000);
     </script>
 </body>
 </html>
