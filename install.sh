@@ -16,7 +16,7 @@ source venv/bin/activate
 # Install Python dependencies
 venv/bin/pip install flask requests
 
-# Create systemd service for DarkIce (unchanged)
+# Create systemd service for DarkIce
 sudo tee /etc/systemd/system/vinyl-stream.service > /dev/null <<EOF
 [Unit]
 Description=Vinyl Streamer (DarkIce)
@@ -30,7 +30,7 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# Create systemd service for "Now Playing" recognition
+# Create systemd service for Now Playing recognition (ACRCloud versie)
 sudo tee /etc/systemd/system/vinyl-now-playing.service > /dev/null <<EOF
 [Unit]
 Description=Vinyl Now Playing Metadata Service
