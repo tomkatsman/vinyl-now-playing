@@ -2,9 +2,13 @@ from flask import Flask, jsonify, send_from_directory
 import json
 import os
 
-app = Flask(__name__, static_folder="web")
+# Bepaal de absolute paden correct ongeacht waar het script wordt gestart
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+WEB_DIR = os.path.join(BASE_DIR, "web")
+NOW_PLAYING_PATH = os.path.join(WEB_DIR, "now_playing.json")
 
-NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
+# Maak de Flask app aan met de juiste static folder
+app = Flask(__name__, static_folder=WEB_DIR)
 
 @app.route('/now-playing')
 def now_playing():
@@ -16,7 +20,7 @@ def now_playing():
 
 @app.route('/')
 def index():
-    return send_from_directory(app.static_folder, 'index.html')
+    return send_from_directory(WEB_DIR, 'index.html')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
