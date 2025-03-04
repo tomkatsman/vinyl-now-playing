@@ -49,6 +49,7 @@ def recognize_audio(audio_bytes):
     }
 
     response = requests.post(f"https://{ACR_HOST}/v1/identify", files=files, data=data)
+    print("[DEBUG] ACRCloud Response:", response.json())
     return response.json()
 
 def extract_metadata(result):
