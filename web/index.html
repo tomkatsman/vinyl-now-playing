@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Now Playing</title>
+    <style>
+        body { background: black; color: white; font-family: Arial, sans-serif; text-align: center; }
+        img { max-width: 80%; margin: 20px; }
+    </style>
+</head>
+<body>
+    <h1 id="title">Listening...</h1>
+    <h2 id="artist"></h2>
+    <img id="cover" src="" alt="Album Cover">
+
+    <script>
+        function updateNowPlaying() {
+            fetch("/now-playing").then(r => r.json()).then(data => {
+                document.getElementById("title").innerText = data.title || "Listening...";
+                document.getElementById("artist").innerText = data.artist || "";
+                document.getElementById("cover").src = data.cover || "";
+            });
+        }
+        setInterval(updateNowPlaying, 5000);
+        updateNowPlaying();
+    </script>
+</body>
+</html>
