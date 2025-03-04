@@ -1,11 +1,14 @@
 import requests
 import time
 import json
+import os
 
 AUDD_API_KEY = "your_audd_api_key"
 DISCOGS_KEY = "your_discogs_key"
 DISCOGS_SECRET = "your_discogs_secret"
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
+
+NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -41,6 +44,6 @@ while True:
     if result.get("result"):
         song = result['result']
         cover = get_album_cover(song['artist'], song.get('album', ''))
-        with open("web/now_playing.json", "w") as f:
+        with open(NOW_PLAYING_PATH, "w") as f:
             json.dump({"title": song['title'], "artist": song['artist'], "cover": cover}, f)
     time.sleep(15)
