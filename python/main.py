@@ -7,7 +7,7 @@ import hashlib
 import hmac
 
 # Vul je ACRCloud gegevens hier in!
-ACR_HOST = "YOidentify-eu-west-1.acrcloud.com"              # bijv: "eu-west-1.api.acrcloud.com"
+ACR_HOST = "identify-eu-west-1.acrcloud.com"              # bijv: "eu-west-1.api.acrcloud.com"
 ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
 ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
 
