@@ -92,8 +92,6 @@ def extract_metadata(result):
 
     return title, artist, album
 
-get('album', {}).get('name', '')
-
 def fetch_discogs_collection():
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
     releases = []
