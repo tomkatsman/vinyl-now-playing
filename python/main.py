@@ -75,8 +75,24 @@ def recognize_audio(audio_bytes):
     return response.json()
 
 def extract_metadata(result):
-    music = result.get('metadata', {}).get('music', [{}])[0]
-    return music.get('title', 'Unknown'), ", ".join([a['name'] for a in music.get('artists', [])]), music.get('album', {}).get('name', '')
+    metadata = result.get('metadata', {})
+    
+    # Prioriteit geven aan 'music', anders fallback naar 'humming'
+    track_data = metadata.get('music', metadata.get('humming', [{}]))
+
+    if not track_data or not isinstance(track_data, list):
+        return "Unknown", "Unknown", "Unknown"
+
+    # Neem de track met de hoogste score
+    best_match = sorted(track_data, key=lambda x: x.get('score', 0), reverse=True)[0]
+
+    title = best_match.get('title', 'Unknown')
+    artist = ", ".join([a['name'] for a in best_match.get('artists', [])])
+    album = best_match.get('album', {}).get('name', 'Unknown')
+
+    return title, artist, album
+
+get('album', {}).get('name', '')
 
 def fetch_discogs_collection():
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
