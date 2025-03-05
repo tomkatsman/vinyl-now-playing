@@ -9,11 +9,6 @@ import re
 import wave
 import audioop
 
-# # ACRCloud credentials
-# ACR_HOST = "identify-eu-west-1.acrcloud.com"
-# ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
-# ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
-
 # ACRCloud credentials
 ACR_HOST = "identify-eu-west-1.acrcloud.com"
 ACR_ACCESS_KEY = "d81b9041a5088eefc54fe9d951e8f40b"
@@ -28,20 +23,17 @@ DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
-# Variabelen voor polling
 poll_interval = 15
 last_track = None
 
-# Opschoonfunctie voor titels
 def clean_title(title):
     cleaned = re.sub(r"\(.*?\)", "", title)
     cleaned = re.sub(r"\[.*?\]", "", cleaned)
-    to_remove = ["Remaster", "Deluxe", "Live", "Edition", "Official Video"]
+    to_remove = ["Remaster", "Deluxe", "Live", "Edition", "Official Video", "Remastered", "Bonus Track"]
     for word in to_remove:
         cleaned = cleaned.replace(word, "")
     return cleaned.strip()
 
-# Stream capture met opslaan naar WAV + volume check
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
     buffer = bytearray()
@@ -51,14 +43,12 @@ def capture_stream(duration=10):
         if len(buffer) >= 44100 * 2 * duration:
             break
 
-    # Audio opslaan voor analyse
     with wave.open("captured_audio.wav", "wb") as wf:
         wf.setnchannels(2)
         wf.setsampwidth(2)
         wf.setframerate(44100)
         wf.writeframes(buffer)
 
-    # Geluidsniveau meten
     rms = audioop.rms(buffer, 2)
     print(f"[DEBUG] Captured {len(buffer)} bytes, RMS volume: {rms}")
 
@@ -67,10 +57,8 @@ def capture_stream(duration=10):
 
     return buffer
 
-# ACRCloud fingerprinting
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
-
     string_to_sign = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
     signature = base64.b64encode(hmac.new(
         ACR_ACCESS_SECRET.encode(),
@@ -92,15 +80,14 @@ def recognize_audio(audio_bytes):
     print(f"[DEBUG] ACRCloud Response: {response.json()}")
     return response.json()
 
-# Metadata parsing
 def extract_metadata(result):
     music = result.get('metadata', {}).get('music', [{}])[0]
     title = music.get('title', 'Unknown')
     artist = ", ".join([a['name'] for a in music.get('artists', [])])
     album = music.get('album', {}).get('name', 'Unknown')
-    return title, artist, album
+    cover = music.get('album', {}).get('cover', '')
+    return title, artist, album, cover
 
-# Zoek in Discogs collectie
 def find_album_cover_on_discogs(artist, track_title):
     clean_track_title = clean_title(track_title)
     print(f"[INFO] Searching Discogs collection for artist '{artist}' and track '{clean_track_title}'...")
@@ -137,19 +124,19 @@ def find_album_cover_on_discogs(artist, track_title):
             clean_track_name = clean_title(track.get("title", ""))
             if clean_track_title.lower() == clean_track_name.lower():
                 cover_image = basic_info.get("cover_image", "")
-                print(f"[INFO] Found matching album cover: {cover_image}")
+                print(f"[INFO] Found matching album cover on Discogs: {cover_image}")
                 return cover_image
 
     print("[INFO] No matching album found for this track in your collection.")
     return ""
 
-# Hoofdlus
 while True:
     audio = capture_stream(10)
     result = recognize_audio(audio)
 
     if result.get('status', {}).get('code') == 0:
-        title, artist, album = extract_metadata(result)
+        title, artist, album, acr_cover = extract_metadata(result)
+        clean_track_title = clean_title(title)
 
         current_track = f"{artist} - {title}"
         if current_track == last_track:
@@ -158,18 +145,21 @@ while True:
             poll_interval = 15
             last_track = current_track
 
-        cover = find_album_cover_on_discogs(artist, title)
+        cover = acr_cover or find_album_cover_on_discogs(artist, title)
 
         now_playing_data = {
             "title": title,
+            "clean_title": clean_track_title,
             "artist": artist,
-            "cover": cover
+            "album": album,
+            "cover": cover,
+            "source": "ACRCloud" if acr_cover else "Discogs"
         }
 
         with open(NOW_PLAYING_PATH, "w") as f:
             json.dump(now_playing_data, f)
 
-        print(f"[INFO] Now playing: {artist} - {title}")
+        print(f"[INFO] Now playing: {artist} - {title} (Cover source: {now_playing_data['source']})")
     else:
         print(f"[WARN] Geen track herkend. ACRCloud status: {result.get('status')}. Poll interval blijft 15 seconden.")
         poll_interval = 15
