@@ -158,29 +158,17 @@ while True:
         log("INFO", "10 seconden tot volgende track...")
         time.sleep(10)
         show_next_track()
-
     else:
         audio, rms = capture_stream(10)
-
         if rms < silence_threshold and silence_duration >= silence_required_for_reset:
             reset_to_listening_mode()
-            continue
-
-        result = recognize_audio(audio)
-
-        if result.get("status", {}).get("code") == 1001:
-            log("WARN", "Geen resultaat van ACRCloud (code 1001), mogelijk stil moment of onbekend nummer.")
-            time.sleep(1)
-            continue
-
-        title, artist, album, offset = extract_metadata(result)
-        album_data = find_album_and_tracklist(artist, album, collection)
-
-        if album_data:
-            current_album = album_data
-            current_track_index = find_track_index(title, album_data['tracklist'])
-            show_current_track(offset)
-            force_initial_recognition = False
-
+        else:
+            if force_initial_recognition:
+                title, artist, album, offset = extract_metadata(recognize_audio(audio))
+                album_data = find_album_and_tracklist(artist, album, collection)
+                if album_data:
+                    current_album = album_data
+                    current_track_index = find_track_index(title, album_data['tracklist'])
+                    show_current_track(offset)
+                    force_initial_recognition = False
         time.sleep(1)
-
