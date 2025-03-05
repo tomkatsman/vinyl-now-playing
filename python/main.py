@@ -73,7 +73,7 @@ def find_album_cover_on_discogs(artist, track_title):
 
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
     response = requests.get(url, headers={
-        "Authorization": f"Discogs token={DISCOGS_TOKEN}"
+        "Authorization": f"Discogs token={DISCOGS_KEY}"
     })
 
     if response.status_code != 200:
@@ -85,17 +85,15 @@ def find_album_cover_on_discogs(artist, track_title):
     for release in releases:
         basic_info = release.get("basic_information", {})
         release_artist = basic_info.get("artists", [{}])[0].get("name", "").lower()
-        release_title = basic_info.get("title", "").lower()
 
-        # Check of de artiest matcht
+        # Skip albums van andere artiesten
         if artist.lower() not in release_artist:
             continue
 
-        # Haal de volledige release op voor tracklist-check (extra API call)
+        # Haal de volledige release details op (voor de tracklist)
         release_id = release.get("id")
-        release_url = f"https://api.discogs.com/releases/{release_id}"
-        release_response = requests.get(release_url, headers={
-            "Authorization": f"Discogs token={DISCOGS_TOKEN}"
+        release_response = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={
+            "Authorization": f"Discogs token={DISCOGS_KEY}"
         })
 
         if release_response.status_code != 200:
@@ -104,7 +102,7 @@ def find_album_cover_on_discogs(artist, track_title):
         release_data = release_response.json()
         tracklist = release_data.get("tracklist", [])
 
-        # Check of de track voorkomt op dit album
+        # Zoek de tracktitel in de tracklist
         track_found = any(track_title.lower() in track.get("title", "").lower() for track in tracklist)
 
         if track_found:
@@ -130,7 +128,7 @@ while True:
             poll_interval = 15  # Nieuwe track, check sneller
             last_track = current_track
 
-        cover = find_album_cover_on_discogs(artist, album)
+        cover = find_album_cover_on_discogs(artist, title)
 
         now_playing_data = {
             "title": title,
