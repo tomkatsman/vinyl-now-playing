@@ -84,16 +84,30 @@ def recognize_audio(audio_bytes):
 
 def extract_metadata(result):
     music_list = result.get('metadata', {}).get('music', [])
-    if not music_list:
-        return "Unknown", "Unknown", "Unknown", 0
+    humming_list = result.get('metadata', {}).get('humming', [])
 
-    best_match = max(music_list, key=lambda m: m.get('score', 0))
-    title = best_match.get('title', 'Unknown')
-    artist = ", ".join([a['name'] for a in best_match.get('artists', [])])
-    album = best_match.get('album', {}).get('name', 'Unknown')
-    duration = best_match.get('duration_ms', 0)
+    if music_list:
+        best_match = max(music_list, key=lambda m: m.get('score', 0))
+        if best_match.get('score', 0) >= 0.3:
+            print(f"[INFO] Found match in 'music' with score {best_match['score']}")
+            return parse_match(best_match)
 
-    return clean_title(title), artist, album, duration
+    if humming_list:
+        best_match = max(humming_list, key=lambda m: m.get('score', 0))
+        if best_match.get('score', 0) >= 0.7:
+            print(f"[INFO] No match in 'music', fallback to 'humming' with score {best_match['score']}")
+            return parse_match(best_match)
+
+    print("[WARN] No valid match found in both 'music' and 'humming'.")
+    return "Unknown", "Unknown", "Unknown", 0
+
+def parse_match(match):
+    title = match.get('title', 'Unknown')
+    artist = ", ".join([a['name'] for a in match.get('artists', [])])
+    album = match.get('album', {}).get('name', 'Unknown')
+    play_offset_ms = match.get('play_offset_ms', 0)
+    return clean_title(title), artist, album, play_offset_ms
+
 
 def fetch_all_discogs_releases():
     all_releases = []
