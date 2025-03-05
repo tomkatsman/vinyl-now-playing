@@ -134,23 +134,48 @@ def fetch_all_discogs_releases():
     return all_releases
 
 def find_album_and_tracklist(artist, album, all_releases):
+    print(f"[INFO] Searching Discogs for album '{album}' by '{artist}'...")
+
+    exact_match = None
+    artist_albums = []
+
     for release in all_releases:
         basic_info = release.get("basic_information", {})
         release_artist = basic_info.get("artists", [{}])[0].get("name", "").lower()
+        release_title = clean_title(basic_info.get("title", ""))
 
         if artist.lower() not in release_artist:
-            continue
+            continue  # Sla albums van andere artiesten over
 
-        release_id = release["id"]
-        release_data = requests.get(
-            f"https://api.discogs.com/releases/{release_id}",
-            headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}
-        ).json()
+        if release_title == clean_title(album):
+            exact_match = release
+            break  # We hebben de perfecte match gevonden
 
-        if clean_title(release_data.get("title", "")) == album:
-            return release_data
+        artist_albums.append(release)  # Verzamel alle albums van deze artiest
 
-    return None
+    if exact_match:
+        release_id = exact_match.get("id")
+        print(f"[INFO] Exact album match gevonden: {album}")
+    elif artist_albums:
+        best_alternative = sorted(artist_albums, key=lambda r: r.get("year", 9999))[0]  # Kies oudste album
+        release_id = best_alternative.get("id")
+        print(f"[WARN] Geen exacte match gevonden. Gebruik ander album van {artist}: {best_alternative['basic_information']['title']}")
+    else:
+        print("[WARN] Geen albums gevonden voor deze artiest in je collectie.")
+        return None  # Geen alternatief album gevonden
+
+    # Haal albumdetails op
+    release_response = requests.get(
+        f"https://api.discogs.com/releases/{release_id}",
+        headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}
+    )
+
+    if release_response.status_code != 200:
+        print(f"[ERROR] Kan albumdetails niet ophalen (status {release_response.status_code}).")
+        return None
+
+    return release_response.json()  # Stuur albuminfo terug
+
 
 def update_now_playing(title, artist, cover):
     with open(NOW_PLAYING_PATH, "w") as f:
