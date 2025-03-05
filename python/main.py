@@ -93,7 +93,7 @@ def find_album_cover_on_discogs(artist, track_title):
         # Haal de volledige release details op (voor de tracklist)
         release_id = release.get("id")
         release_response = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={
-            "Authorization": f"Discogs token={DISCOGS_KEY}"
+            "Authorization": f"Discogs token={DISCOGS_TOKEN}"
         })
 
         if release_response.status_code != 200:
