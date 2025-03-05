@@ -6,18 +6,21 @@ import base64
 import hashlib
 import hmac
 
-# Vul je ACRCloud gegevens hier in!
+# ACRCloud credentials
 ACR_HOST = "identify-eu-west-1.acrcloud.com"
 ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
 ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
 
-# Vul je Discogs gegevens hier in!
+# Discogs credentials
 DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
 DISCOGS_SECRET = "wVvhtEfwYjwVPZhrwDPZLMBhLqANLBvW"
+DISCOGS_USERNAME = "tomkatsman"  # <- vul hier jouw Discogs gebruikersnaam in
 
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
-
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
+
+last_track = None
+poll_interval = 15  # start met 15 seconden, past zichzelf aan
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -49,7 +52,6 @@ def recognize_audio(audio_bytes):
     }
 
     response = requests.post(f"https://{ACR_HOST}/v1/identify", files=files, data=data)
-    print("[DEBUG] ACRCloud Response:", response.json())
     return response.json()
 
 def extract_metadata(result):
@@ -58,54 +60,58 @@ def extract_metadata(result):
     title = music.get('title', 'Unknown')
     artist = ", ".join([a['name'] for a in music.get('artists', [])])
     album = music.get('album', {}).get('name', 'Unknown')
-    cover = music.get('album', {}).get('cover', '')
+    return title, artist, album
 
-    return title, artist, album, cover
+def find_album_cover_on_discogs(artist, album):
+    print(f"[INFO] Searching Discogs for '{artist} - {album}' in your collection...")
+    url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
+    response = requests.get(url, params={
+        "token": f"{DISCOGS_KEY}-{DISCOGS_SECRET}"
+    })
+    if response.status_code != 200:
+        print("[WARN] Failed to fetch collection from Discogs.")
+        return ""
 
-def get_album_cover_from_discogs(artist, album):
-    print(f"[INFO] Searching Discogs for cover: {artist} - {album}")
-    query = f"{artist} {album}"
-    response = requests.get(
-        "https://api.discogs.com/database/search",
-        params={
-            "q": query,
-            "format": "vinyl",
-            "key": DISCOGS_KEY,
-            "secret": DISCOGS_SECRET
-        }
-    )
-    response_json = response.json()
-    results = response_json.get("results", [])
-    
-    if results:
-        cover = results[0].get("cover_image", "")
-        print(f"[INFO] Found cover on Discogs: {cover}")
-        return cover
-    
-    print("[WARN] No cover found on Discogs.")
+    releases = response.json().get("releases", [])
+    for release in releases:
+        if artist.lower() in release["basic_information"]["artists"][0]["name"].lower() and \
+           album.lower() in release["basic_information"]["title"].lower():
+            return release["basic_information"].get("cover_image", "")
+
+    print("[INFO] No match found in your collection.")
     return ""
 
 while True:
     audio = capture_stream(10)
     result = recognize_audio(audio)
 
-    if result.get('status', {}).get('code') == 0:
-        title, artist, album, cover = extract_metadata(result)
+    global poll_interval
+    global last_track
 
-        if not cover:
-            cover = get_album_cover_from_discogs(artist, album)
+    if result.get('status', {}).get('code') == 0:
+        title, artist, album = extract_metadata(result)
+
+        current_track = f"{artist} - {title}"
+        if current_track == last_track:
+            poll_interval = 60  # zelfde track, check na 60 sec
+        else:
+            poll_interval = 15  # nieuwe track, check sneller
+            last_track = current_track
+
+        cover = find_album_cover_on_discogs(artist, album)
 
         now_playing_data = {
             "title": title,
             "artist": artist,
-            "cover": cover or ""
+            "cover": cover
         }
 
         with open(NOW_PLAYING_PATH, "w") as f:
             json.dump(now_playing_data, f)
 
-        print(f"Now playing: {artist} - {title}")
+        print(f"[INFO] Now playing: {artist} - {title}")
     else:
-        print("Geen track herkend.")
+        print("[WARN] Geen track herkend. Poll interval blijft 15 seconden.")
+        poll_interval = 15
 
-    time.sleep(15)
+    time.sleep(poll_interval)
