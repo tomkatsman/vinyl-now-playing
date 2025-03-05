@@ -22,12 +22,9 @@ ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
 poll_interval = 15
-last_track = None
-silence_counter = 0
-current_album_tracklist = []
-current_track_index = 0
+current_album = None
+current_track_index = None
 
-# Opschoonfunctie voor titels
 def clean_title(title):
     cleaned = re.sub(r"\(.*?\)", "", title)
     cleaned = re.sub(r"\[.*?\]", "", cleaned)
@@ -36,9 +33,7 @@ def clean_title(title):
         cleaned = cleaned.replace(word, "")
     return cleaned.strip()
 
-# Stream capture met stilte-detectie
 def capture_stream(duration=10):
-    global silence_counter
     response = requests.get(ICECAST_URL, stream=True)
     buffer = bytearray()
 
@@ -47,19 +42,19 @@ def capture_stream(duration=10):
         if len(buffer) >= 44100 * 2 * duration:
             break
 
+    with wave.open("captured_audio.wav", "wb") as wf:
+        wf.setnchannels(2)
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        wf.writeframes(buffer)
+
     rms = audioop.rms(buffer, 2)
-    if rms < 100:
-        silence_counter += 1
-    else:
-        silence_counter = 0
+    print(f"[DEBUG] Captured {len(buffer)} bytes, RMS volume: {rms}")
 
-    print(f"[DEBUG] Captured {len(buffer)} bytes, RMS volume: {rms}, Silence counter: {silence_counter}")
-    return buffer
+    return buffer, rms
 
-# ACRCloud fingerprinting
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
-
     string_to_sign = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
     signature = base64.b64encode(hmac.new(
         ACR_ACCESS_SECRET.encode(),
@@ -82,62 +77,128 @@ def recognize_audio(audio_bytes):
     print(f"[DEBUG] ACRCloud Response: {json.dumps(result, indent=4)}")
     return result
 
-# Metadata parsing
 def extract_metadata(result):
-    music_list = result.get('metadata', {}).get('music', [])
-    if not music_list:
-        return "Unknown", "Unknown", "Unknown", 0, 180
+    music = result.get('metadata', {}).get('music', [{}])[0]
+    title = clean_title(music.get('title', 'Unknown'))
+    artist = ", ".join([a['name'] for a in music.get('artists', [])])
+    album = music.get('album', {}).get('name', 'Unknown')
+    return title, artist, album
 
-    best_match = max(music_list, key=lambda m: m.get('score', 0))
-    title = best_match.get('title', 'Unknown')
-    artist = ", ".join([a['name'] for a in best_match.get('artists', [])])
-    album = best_match.get('album', {}).get('name', 'Unknown')
-    play_offset = best_match.get('play_offset_ms', 0) // 1000
-    duration = best_match.get('duration_ms', 180000) // 1000
+def fetch_discogs_collection():
+    collection = []
+    page = 1
 
-    return clean_title(title), artist, album, play_offset, duration
+    while True:
+        response = requests.get(
+            f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases",
+            headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"},
+            params={"page": page, "per_page": 100}
+        )
+        if response.status_code != 200:
+            print(f"[WARN] Failed to fetch Discogs collection page {page}")
+            break
 
-# Zoek en cache de tracklist van een album
-def fetch_tracklist_from_discogs(artist, album):
-    global current_album_tracklist
-    print(f"[INFO] Fetching tracklist for {artist} - {album} from your Discogs collection...")
-    releases = fetch_all_discogs_releases()
+        data = response.json()
+        collection.extend(data.get("releases", []))
 
-    for release in releases:
-        basic_info = release.get('basic_information', {})
-        if artist.lower() in basic_info.get('artists', [{}])[0].get('name', '').lower() and album.lower() in basic_info.get('title', '').lower():
-            release_id = release.get('id')
-            release_details = requests.get(
-                f"https://api.discogs.com/releases/{release_id}",
-                headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}
-            ).json()
-            current_album_tracklist = [track['title'] for track in release_details.get('tracklist', [])]
-            return release_details.get('images', [{}])[0].get('uri', '')
-    return ""
+        if len(data.get("releases", [])) < 100:
+            break
+        page += 1
 
-# Hoofdlus
+    print(f"[INFO] Fetched {len(collection)} releases from Discogs.")
+    return collection
+
+def find_album_in_collection(artist, track_title, collection):
+    for release in collection:
+        basic_info = release["basic_information"]
+        if artist.lower() not in basic_info["artists"][0]["name"].lower():
+            continue
+
+        release_id = release["id"]
+        release_data = requests.get(
+            f"https://api.discogs.com/releases/{release_id}",
+            headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}
+        ).json()
+
+        for track in release_data.get("tracklist", []):
+            if clean_title(track["title"]).lower() == track_title.lower():
+                print(f"[INFO] Match gevonden in collectie: {basic_info['title']}")
+                return {
+                    "title": basic_info["title"],
+                    "cover": basic_info.get("cover_image", ""),
+                    "artist": artist,
+                    "tracklist": release_data["tracklist"]
+                }
+    return None
+
+def update_now_playing(track):
+    now_playing_data = {
+        "title": track["title"],
+        "artist": current_album["artist"],
+        "cover": current_album["cover"]
+    }
+    with open(NOW_PLAYING_PATH, "w") as f:
+        json.dump(now_playing_data, f)
+
+def detect_silence(threshold=100, duration=30):
+    silent_seconds = 0
+    while silent_seconds < duration:
+        _, rms = capture_stream(1)
+        if rms > threshold:
+            return False
+        silent_seconds += 1
+        time.sleep(1)
+    return True
+
+def recognize_new_record():
+    global current_album, current_track_index
+    audio, _ = capture_stream(10)
+    result = recognize_audio(audio)
+
+    if result.get('status', {}).get('code') != 0:
+        print("[WARN] Geen herkenning. Blijven luisteren...")
+        return
+
+    title, artist, album = extract_metadata(result)
+    print(f"[INFO] Nieuwe plaat herkend: {artist} - {title}, Album: {album}")
+
+    current_album = find_album_in_collection(artist, title, discogs_collection)
+    if current_album:
+        print(f"[INFO] Album gevonden: {current_album['title']}")
+        current_track_index = next(
+            (i for i, t in enumerate(current_album["tracklist"]) if clean_title(t["title"]).lower() == title.lower()), 
+            0
+        )
+        update_now_playing(current_album["tracklist"][current_track_index])
+    else:
+        print("[WARN] Geen album gevonden in jouw collectie. Terug naar luisteren...")
+        current_album = None
+        current_track_index = None
+
+def show_next_track():
+    global current_track_index
+    if not current_album:
+        return
+
+    current_track_index += 1
+    if current_track_index >= len(current_album["tracklist"]):
+        print("[INFO] Einde album. Terug naar luisteren.")
+        current_album = None
+        current_track_index = None
+        return
+
+    next_track = current_album["tracklist"][current_track_index]
+    print(f"[INFO] Nu spelen: {next_track['title']}")
+    update_now_playing(next_track)
+
+# Start flow
+discogs_collection = fetch_discogs_collection()
+recognize_new_record()  # Direct bij opstarten!
+
 while True:
-    if silence_counter >= 3:  # 30 seconden stilte
-        print("[INFO] 30 seconden stilte gedetecteerd, starten met trackherkenning.")
-        audio = capture_stream(10)
-        result = recognize_audio(audio)
-
-        if result.get('status', {}).get('code') == 0:
-            title, artist, album, play_offset, duration = extract_metadata(result)
-            cover = fetch_tracklist_from_discogs(artist, album)
-            remaining_time = max(0, duration - play_offset)
-
-            with open(NOW_PLAYING_PATH, "w") as f:
-                json.dump({"title": title, "artist": artist, "cover": cover}, f)
-
-            print(f"[INFO] Now playing: {artist} - {title}, Next track in {remaining_time} seconds")
-            time.sleep(remaining_time)
-            
-            # Automatisch volgende track spelen
-            for track in current_album_tracklist[1:]:
-                with open(NOW_PLAYING_PATH, "w") as f:
-                    json.dump({"title": track, "artist": artist, "cover": cover}, f)
-                print(f"[INFO] Now playing: {artist} - {track}")
-                time.sleep(180)  # Gemiddelde tracklengte als schatting
-
-    time.sleep(poll_interval)
+    if detect_silence():
+        print("[INFO] Stilte gedetecteerd, terug naar luistermodus.")
+        recognize_new_record()
+    else:
+        show_next_track()
+        time.sleep(15)
