@@ -172,12 +172,24 @@ def update_now_playing(title, artist, cover):
 
 
 def show_next_track():
-    global current_album, current_track_index, current_track_duration
+    global current_album, current_track_index, current_track_duration, force_initial_recognition
 
     if current_album is None or current_track_index >= len(current_album.get("tracklist", [])):
         print("[INFO] Albumkant is afgelopen, terug naar luistermodus.")
         reset_to_listening_mode()
+        force_initial_recognition = True   # <-- Belangrijk! Direct weer beginnen met luisteren.
         return
+
+    track = current_album["tracklist"][current_track_index]
+    title = clean_title(track["title"])
+    minutes, seconds = map(int, track.get("duration", "0:00").split(":"))
+    current_track_duration = minutes * 60 + seconds
+
+    cover = current_album.get("images", [{}])[0].get("uri", "")
+    update_now_playing(title, current_album["artists"][0]["name"], cover)
+
+    current_track_index += 1
+
 
     track = current_album["tracklist"][current_track_index]
     title = clean_title(track["title"])
