@@ -73,7 +73,7 @@ def find_album_cover_on_discogs(artist, track_title):
 
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
     response = requests.get(url, headers={
-        "Authorization": f"Discogs token={DISCOGS_KEY}"
+        "Authorization": f"Discogs token={DISCOGS_TOKEN}"
     })
 
     if response.status_code != 200:
