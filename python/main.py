@@ -9,10 +9,15 @@ import re
 import wave
 import audioop
 
+# # ACRCloud credentials
+# ACR_HOST = "identify-eu-west-1.acrcloud.com"
+# ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
+# ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
+
 # ACRCloud credentials
 ACR_HOST = "identify-eu-west-1.acrcloud.com"
-ACR_ACCESS_KEY = "3fea776a493631a8e880d625080aa344"
-ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
+ACR_ACCESS_KEY = "d81b9041a5088eefc54fe9d951e8f40b"
+ACR_ACCESS_SECRET = "T7a8zHSW56NFCBJge5pNYTfZpB0vNlMxwujnyFYn"
 
 # Discogs credentials
 DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
