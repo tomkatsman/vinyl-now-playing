@@ -8,6 +8,7 @@ import hmac
 import re
 import wave
 import audioop
+from difflib import SequenceMatcher
 
 # ACRCloud credentials
 ACR_HOST = "identify-eu-west-1.acrcloud.com"
@@ -31,6 +32,7 @@ current_track_index = 0
 current_track_duration = 0
 last_detected_track = None
 
+
 def clean_title(title):
     cleaned = re.sub(r"\(.*?\)", "", title)
     cleaned = re.sub(r"\[.*?\]", "", cleaned)
@@ -38,6 +40,7 @@ def clean_title(title):
     for word in to_remove:
         cleaned = cleaned.replace(word, "")
     return cleaned.strip()
+
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -57,6 +60,7 @@ def capture_stream(duration=10):
     print(f"[DEBUG] Captured {len(buffer)} bytes, RMS volume: {rms}")
 
     return buffer, rms
+
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -82,24 +86,20 @@ def recognize_audio(audio_bytes):
     print(f"[DEBUG] ACRCloud Response: {json.dumps(result, indent=4)}")
     return result
 
+
 def extract_metadata(result):
     music_list = result.get('metadata', {}).get('music', [])
+    if not music_list:
+        return "Unknown", "Unknown", "Unknown", 0
 
-    if music_list:
-        best_match = max(music_list, key=lambda m: m.get('score', 0))
-        if best_match.get('score', 0) >= 0.3:
-            print(f"[INFO] Found match in 'music' with score {best_match['score']}")
-            return parse_match(best_match)
+    best_match = max(music_list, key=lambda m: m.get('score', 0))
+    title = best_match.get('title', 'Unknown')
+    artist = ", ".join([a['name'] for a in best_match.get('artists', [])])
+    album = best_match.get('album', {}).get('name', 'Unknown')
+    play_offset_ms = best_match.get('play_offset_ms', 0)
 
-    print("[WARN] No valid match found in 'music'.")
-    return "Unknown", "Unknown", "Unknown", 0
-
-def parse_match(match):
-    title = match.get('title', 'Unknown')
-    artist = ", ".join([a['name'] for a in match.get('artists', [])])
-    album = match.get('album', {}).get('name', 'Unknown')
-    play_offset_ms = match.get('play_offset_ms', 0)
     return clean_title(title), artist, clean_title(album), play_offset_ms
+
 
 def fetch_all_discogs_releases():
     all_releases = []
@@ -118,10 +118,9 @@ def fetch_all_discogs_releases():
             break
 
         data = response.json()
-        releases = data.get("releases", [])
-        all_releases.extend(releases)
+        all_releases.extend(data.get("releases", []))
 
-        if len(releases) < per_page:
+        if len(data.get("releases", [])) < per_page:
             break
 
         page += 1
@@ -129,70 +128,74 @@ def fetch_all_discogs_releases():
     print(f"[INFO] Fetched {len(all_releases)} releases from Discogs.")
     return all_releases
 
+
 def find_album_and_tracklist(artist, album, all_releases):
     for release in all_releases:
         basic_info = release.get("basic_information", {})
         release_artist = basic_info.get("artists", [{}])[0].get("name", "").lower()
-        release_title = clean_title(basic_info.get("title", ""))
 
         if artist.lower() not in release_artist:
             continue
 
-        if album.lower() == release_title.lower():
-            release_id = release.get("id")
-            release_response = requests.get(
-                f"https://api.discogs.com/releases/{release_id}",
-                headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}
-            )
+        release_id = release.get("id")
+        response = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={
+            "Authorization": f"Discogs token={DISCOGS_TOKEN}"
+        })
 
-            if release_response.status_code != 200:
-                continue
+        if response.status_code != 200:
+            continue
 
-            return release_response.json()
+        release_data = response.json()
+        discogs_album = clean_title(release_data.get("title", ""))
+
+        if SequenceMatcher(None, album.lower(), discogs_album.lower()).ratio() > 0.7:
+            return release_data
 
     return None
 
-def find_track_index_in_album(album_data, recognized_title):
-    recognized_clean = clean_title(recognized_title)
 
-    for index, track in enumerate(album_data.get("tracklist", [])):
-        track_clean = clean_title(track.get("title", ""))
-        if track_clean.lower() == recognized_clean.lower():
+def find_track_index_in_album(target_title, tracklist):
+    target_title = clean_title(target_title).lower()
+
+    for index, track in enumerate(tracklist):
+        discogs_title = clean_title(track.get("title", "")).lower()
+        if SequenceMatcher(None, target_title, discogs_title).ratio() > 0.7:
             return index
 
-    print(f"[WARN] Recognized track '{recognized_title}' not found in tracklist.")
-    return 0  # Fallback als match faalt
+    return 0
+
 
 def update_now_playing(title, artist, cover):
     with open(NOW_PLAYING_PATH, "w") as f:
         json.dump({"title": title, "artist": artist, "cover": cover}, f)
     print(f"[INFO] Now playing: {artist} - {title}")
 
+
 def show_next_track():
     global current_album, current_track_index, current_track_duration
 
-    current_track_index += 1
-    if current_track_index >= len(current_album.get("tracklist", [])):
-        print("[INFO] Album side ended, returning to listening mode.")
+    if current_album is None or current_track_index >= len(current_album.get("tracklist", [])):
+        print("[INFO] Albumkant is afgelopen, terug naar luistermodus.")
         reset_to_listening_mode()
         return
 
-    next_track = current_album["tracklist"][current_track_index]
-    title = clean_title(next_track["title"])
-    duration = next_track.get("duration", "0:00")
-
-    minutes, seconds = map(int, duration.split(":"))
+    track = current_album["tracklist"][current_track_index]
+    title = clean_title(track["title"])
+    minutes, seconds = map(int, track.get("duration", "0:00").split(":"))
     current_track_duration = minutes * 60 + seconds
 
     cover = current_album.get("images", [{}])[0].get("uri", "")
     update_now_playing(title, current_album["artists"][0]["name"], cover)
 
+    current_track_index += 1
+
+
 def reset_to_listening_mode():
-    global current_album, current_track_index, current_track_duration, last_detected_track
+    global current_album, current_track_index, current_track_duration
     current_album = None
     current_track_index = 0
     current_track_duration = 0
-    last_detected_track = None
+
 
 force_initial_recognition = True
 discogs_collection = fetch_all_discogs_releases()
@@ -203,24 +206,22 @@ while True:
         show_next_track()
     else:
         audio, rms = capture_stream(10)
-
         if rms < silence_threshold:
             silence_duration += 10
             if silence_duration >= silence_required_for_reset:
-                print("[INFO] 30 seconds silence, resetting...")
                 reset_to_listening_mode()
         else:
+            silence_duration = 0
             if force_initial_recognition:
-                silence_duration = 0
                 result = recognize_audio(audio)
-                title, artist, album, offset = extract_metadata(result)
+                title, artist, album, _ = extract_metadata(result)
 
                 album_data = find_album_and_tracklist(artist, album, discogs_collection)
                 if album_data:
                     current_album = album_data
-                    current_track_index = find_track_index_in_album(current_album, title)
+                    current_track_index = find_track_index_in_album(title, album_data["tracklist"])
                     show_next_track()
 
                 force_initial_recognition = False
 
-    time.sleep(1)
+        time.sleep(1)
