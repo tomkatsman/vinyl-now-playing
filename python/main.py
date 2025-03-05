@@ -77,19 +77,8 @@ def recognize_audio(audio_bytes):
 
 # Metadata extractie
 def extract_metadata(result):
-    music_list = result.get('metadata', {}).get('music', [])
-
-    if not music_list:
-        log("WARN", "Geen muziekdata gevonden in resultaat, waarschijnlijk 'No result' van ACRCloud.")
-        return "Unknown", "Unknown", "Unknown", 0
-
-    best_match = max(music_list, key=lambda m: m.get('score', 0))
-    title = best_match.get('title', 'Unknown')
-    artist = ", ".join([a['name'] for a in best_match.get('artists', [])])
-    album = best_match.get('album', {}).get('name', 'Unknown')
-    play_offset_ms = best_match.get('play_offset_ms', 0)
-
-    return clean_title(title), artist, clean_title(album), play_offset_ms
+    music = result.get('metadata', {}).get('music', [{}])[0]
+    return clean_title(music.get('title', 'Unknown')), music['artists'][0]['name'], clean_title(music['album']['name']), music.get('play_offset_ms', 0)
 
 # Discogs collectie ophalen
 def fetch_discogs_collection():
@@ -169,17 +158,29 @@ while True:
         log("INFO", "10 seconden tot volgende track...")
         time.sleep(10)
         show_next_track()
+
     else:
         audio, rms = capture_stream(10)
+
         if rms < silence_threshold and silence_duration >= silence_required_for_reset:
             reset_to_listening_mode()
-        else:
-            if force_initial_recognition:
-                title, artist, album, offset = extract_metadata(recognize_audio(audio))
-                album_data = find_album_and_tracklist(artist, album, collection)
-                if album_data:
-                    current_album = album_data
-                    current_track_index = find_track_index(title, album_data['tracklist'])
-                    show_current_track(offset)
-                    force_initial_recognition = False
+            continue
+
+        result = recognize_audio(audio)
+
+        if result.get("status", {}).get("code") == 1001:
+            log("WARN", "Geen resultaat van ACRCloud (code 1001), mogelijk stil moment of onbekend nummer.")
+            time.sleep(1)
+            continue
+
+        title, artist, album, offset = extract_metadata(result)
+        album_data = find_album_and_tracklist(artist, album, collection)
+
+        if album_data:
+            current_album = album_data
+            current_track_index = find_track_index(title, album_data['tracklist'])
+            show_current_track(offset)
+            force_initial_recognition = False
+
         time.sleep(1)
+
