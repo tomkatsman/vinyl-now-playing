@@ -176,13 +176,16 @@ def recognize_new_record():
         current_track_index = None
 
 def show_next_track():
-    global current_track_index
+    global current_album, current_track_index
+
     if not current_album:
+        print("[INFO] Geen album actief. Wachten op nieuwe herkenning.")
         return
 
     current_track_index += 1
+
     if current_track_index >= len(current_album["tracklist"]):
-        print("[INFO] Einde album. Terug naar luisteren.")
+        print("[INFO] Einde album. Terug naar luistermodus.")
         current_album = None
         current_track_index = None
         return
@@ -190,6 +193,7 @@ def show_next_track():
     next_track = current_album["tracklist"][current_track_index]
     print(f"[INFO] Nu spelen: {next_track['title']}")
     update_now_playing(next_track)
+
 
 # Start flow
 discogs_collection = fetch_discogs_collection()
