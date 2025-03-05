@@ -21,11 +21,9 @@ DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
-# Variabelen voor het tracken van polling en laatste track
 poll_interval = 15
 last_track = None
 
-# Opschoonfunctie voor titels
 def clean_title(title):
     cleaned = re.sub(r"\(.*?\)", "", title)
     cleaned = re.sub(r"\[.*?\]", "", cleaned)
@@ -35,12 +33,18 @@ def clean_title(title):
     return cleaned.strip()
 
 def capture_stream(duration=10):
+    print("[DEBUG] Capturing audio stream...")
     response = requests.get(ICECAST_URL, stream=True)
+
     buffer = bytearray()
     for chunk in response.iter_content(chunk_size=1024):
         buffer.extend(chunk)
         if len(buffer) >= 44100 * 2 * duration:
             break
+
+    print(f"[DEBUG] Captured {len(buffer)} bytes of audio.")
+    print(f"[DEBUG] First 16 bytes of audio: {buffer[:16].hex()}")
+
     return buffer
 
 def recognize_audio(audio_bytes):
@@ -64,6 +68,10 @@ def recognize_audio(audio_bytes):
     }
 
     response = requests.post(f"https://{ACR_HOST}/v1/identify", files=files, data=data)
+
+    print("[DEBUG] ACRCloud response:")
+    print(json.dumps(response.json(), indent=4))
+
     return response.json()
 
 def extract_metadata(result):
