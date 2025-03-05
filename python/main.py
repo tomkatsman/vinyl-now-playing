@@ -5,6 +5,7 @@ import os
 import base64
 import hashlib
 import hmac
+import re
 
 # ACRCloud credentials
 ACR_HOST = "identify-eu-west-1.acrcloud.com"
@@ -14,16 +15,24 @@ ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
 # Discogs credentials
 DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
 DISCOGS_SECRET = "wVvhtEfwYjwVPZhrwDPZLMBhLqANLBvW"
-DISCOGS_USERNAME = "tomkatsman"  # <- Vul hier jouw Discogs gebruikersnaam in
+DISCOGS_USERNAME = "tomkatsman"
 DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
 # Variabelen voor het tracken van polling en laatste track
-poll_interval = 15  # start met 15 seconden, past zichzelf aan
+poll_interval = 15
 last_track = None
 
+# Opschoonfunctie voor titels
+def clean_title(title):
+    cleaned = re.sub(r"\(.*?\)", "", title)
+    cleaned = re.sub(r"\[.*?\]", "", cleaned)
+    to_remove = ["Remaster", "Deluxe", "Live", "Edition", "Official Video"]
+    for word in to_remove:
+        cleaned = cleaned.replace(word, "")
+    return cleaned.strip()
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -33,7 +42,6 @@ def capture_stream(duration=10):
         if len(buffer) >= 44100 * 2 * duration:
             break
     return buffer
-
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -58,7 +66,6 @@ def recognize_audio(audio_bytes):
     response = requests.post(f"https://{ACR_HOST}/v1/identify", files=files, data=data)
     return response.json()
 
-
 def extract_metadata(result):
     metadata = result.get('metadata', {})
     music = metadata.get('music', [{}])[0]
@@ -67,9 +74,9 @@ def extract_metadata(result):
     album = music.get('album', {}).get('name', 'Unknown')
     return title, artist, album
 
-
 def find_album_cover_on_discogs(artist, track_title):
-    print(f"[INFO] Searching Discogs collection for artist '{artist}' and track '{track_title}'...")
+    clean_track_title = clean_title(track_title)
+    print(f"[INFO] Searching Discogs collection for artist '{artist}' and cleaned track '{clean_track_title}'...")
 
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
     response = requests.get(url, headers={
@@ -86,11 +93,9 @@ def find_album_cover_on_discogs(artist, track_title):
         basic_info = release.get("basic_information", {})
         release_artist = basic_info.get("artists", [{}])[0].get("name", "").lower()
 
-        # Skip albums van andere artiesten
         if artist.lower() not in release_artist:
             continue
 
-        # Haal de volledige release details op (voor de tracklist)
         release_id = release.get("id")
         release_response = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={
             "Authorization": f"Discogs token={DISCOGS_TOKEN}"
@@ -102,17 +107,15 @@ def find_album_cover_on_discogs(artist, track_title):
         release_data = release_response.json()
         tracklist = release_data.get("tracklist", [])
 
-        # Zoek de tracktitel in de tracklist
-        track_found = any(track_title.lower() in track.get("title", "").lower() for track in tracklist)
-
-        if track_found:
-            cover_image = basic_info.get("cover_image", "")
-            print(f"[INFO] Found matching album cover: {cover_image}")
-            return cover_image
+        for track in tracklist:
+            clean_track_name = clean_title(track.get("title", ""))
+            if clean_track_title.lower() == clean_track_name.lower():
+                cover_image = basic_info.get("cover_image", "")
+                print(f"[INFO] Found matching album cover: {cover_image}")
+                return cover_image
 
     print("[INFO] No matching album found for this track in your collection.")
     return ""
-
 
 while True:
     audio = capture_stream(10)
@@ -123,9 +126,9 @@ while True:
 
         current_track = f"{artist} - {title}"
         if current_track == last_track:
-            poll_interval = 60  # Zelfde track, check na 60 sec
+            poll_interval = 60
         else:
-            poll_interval = 15  # Nieuwe track, check sneller
+            poll_interval = 15
             last_track = current_track
 
         cover = find_album_cover_on_discogs(artist, title)
@@ -145,4 +148,3 @@ while True:
         poll_interval = 15
 
     time.sleep(poll_interval)
-
