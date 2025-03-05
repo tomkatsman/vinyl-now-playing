@@ -80,11 +80,23 @@ def recognize_audio(audio_bytes):
     return result
 
 def extract_metadata(result):
-    music = result.get('metadata', {}).get('music', [{}])[0]
-    title = music.get('title', 'Unknown')
-    artist = ", ".join([a['name'] for a in music.get('artists', [])])
-    album = music.get('album', {}).get('name', 'Unknown')
+    music_list = result.get('metadata', {}).get('music', [])
+
+    if not music_list:
+        return "Unknown", "Unknown", "Unknown"
+
+    best_match = max(music_list, key=lambda m: m.get('score', 0))
+
+    if best_match.get('score', 0) < 0.3:
+        print("[WARN] Match gevonden maar score is erg laag, mogelijk ruis.")
+        return "Unknown", "Unknown", "Unknown"
+
+    title = best_match.get('title', 'Unknown')
+    artist = ", ".join([a['name'] for a in best_match.get('artists', [])])
+    album = best_match.get('album', {}).get('name', 'Unknown')
+
     return clean_title(title), artist, album
+
 
 def fetch_all_discogs_releases():
     all_releases = []
