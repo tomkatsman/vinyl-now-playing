@@ -68,24 +68,51 @@ def extract_metadata(result):
     return title, artist, album
 
 
-def find_album_cover_on_discogs(artist, album):
-    print(f"[INFO] Searching Discogs for '{artist} - {album}' in your collection...")
+def find_album_cover_on_discogs(artist, track_title):
+    print(f"[INFO] Searching Discogs collection for artist '{artist}' and track '{track_title}'...")
+
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
     response = requests.get(url, headers={
-    "Authorization": f"Discogs token={DISCOGS_TOKEN}"
+        "Authorization": f"Discogs token={DISCOGS_TOKEN}"
     })
 
     if response.status_code != 200:
-        print("[WARN] Failed to fetch collection from Discogs.")
+        print(f"[WARN] Failed to fetch collection from Discogs. Status: {response.status_code}")
         return ""
 
     releases = response.json().get("releases", [])
-    for release in releases:
-        if artist.lower() in release["basic_information"]["artists"][0]["name"].lower() and \
-           album.lower() in release["basic_information"]["title"].lower():
-            return release["basic_information"].get("cover_image", "")
 
-    print("[INFO] No match found in your collection.")
+    for release in releases:
+        basic_info = release.get("basic_information", {})
+        release_artist = basic_info.get("artists", [{}])[0].get("name", "").lower()
+        release_title = basic_info.get("title", "").lower()
+
+        # Check of de artiest matcht
+        if artist.lower() not in release_artist:
+            continue
+
+        # Haal de volledige release op voor tracklist-check (extra API call)
+        release_id = release.get("id")
+        release_url = f"https://api.discogs.com/releases/{release_id}"
+        release_response = requests.get(release_url, headers={
+            "Authorization": f"Discogs token={DISCOGS_TOKEN}"
+        })
+
+        if release_response.status_code != 200:
+            continue
+
+        release_data = release_response.json()
+        tracklist = release_data.get("tracklist", [])
+
+        # Check of de track voorkomt op dit album
+        track_found = any(track_title.lower() in track.get("title", "").lower() for track in tracklist)
+
+        if track_found:
+            cover_image = basic_info.get("cover_image", "")
+            print(f"[INFO] Found matching album cover: {cover_image}")
+            return cover_image
+
+    print("[INFO] No matching album found for this track in your collection.")
     return ""
 
 
