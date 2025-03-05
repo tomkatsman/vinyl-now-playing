@@ -32,7 +32,6 @@ current_track_index = 0
 current_track_duration = 0
 last_detected_track = None
 
-
 def clean_title(title):
     cleaned = re.sub(r"\(.*?\)", "", title)
     cleaned = re.sub(r"\[.*?\]", "", cleaned)
@@ -40,7 +39,6 @@ def clean_title(title):
     for word in to_remove:
         cleaned = cleaned.replace(word, "")
     return cleaned.strip()
-
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -60,7 +58,6 @@ def capture_stream(duration=10):
     print(f"[DEBUG] Captured {len(buffer)} bytes, RMS volume: {rms}")
 
     return buffer, rms
-
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -86,7 +83,6 @@ def recognize_audio(audio_bytes):
     print(f"[DEBUG] ACRCloud Response: {json.dumps(result, indent=4)}")
     return result
 
-
 def extract_metadata(result):
     music_list = result.get('metadata', {}).get('music', [])
     if not music_list:
@@ -99,7 +95,6 @@ def extract_metadata(result):
     play_offset_ms = best_match.get('play_offset_ms', 0)
 
     return clean_title(title), artist, clean_title(album), play_offset_ms
-
 
 def fetch_all_discogs_releases():
     all_releases = []
@@ -128,7 +123,6 @@ def fetch_all_discogs_releases():
     print(f"[INFO] Fetched {len(all_releases)} releases from Discogs.")
     return all_releases
 
-
 def find_album_and_tracklist(artist, album, all_releases):
     for release in all_releases:
         basic_info = release.get("basic_information", {})
@@ -153,7 +147,6 @@ def find_album_and_tracklist(artist, album, all_releases):
 
     return None
 
-
 def find_track_index_in_album(target_title, tracklist):
     target_title = clean_title(target_title).lower()
 
@@ -164,50 +157,41 @@ def find_track_index_in_album(target_title, tracklist):
 
     return 0
 
-
 def update_now_playing(title, artist, cover):
     with open(NOW_PLAYING_PATH, "w") as f:
         json.dump({"title": title, "artist": artist, "cover": cover}, f)
     print(f"[INFO] Now playing: {artist} - {title}")
 
+def show_current_track():
+    global current_album, current_track_index, current_track_duration
+
+    track = current_album["tracklist"][current_track_index]
+    title = clean_title(track["title"])
+    minutes, seconds = map(int, track.get("duration", "0:00").split(":"))
+    current_track_duration = minutes * 60 + seconds
+
+    cover = current_album.get("images", [{}]).pop(0).get("uri", "")
+    update_now_playing(title, current_album["artists"][0]["name"], cover)
+
+    print(f"[INFO] Now playing: {current_album['artists'][0]['name']} - {title} (Track {current_track_index + 1}/{len(current_album['tracklist'])})")
 
 def show_next_track():
-    global current_album, current_track_index, current_track_duration, force_initial_recognition
+    global current_track_index
+    current_track_index += 1
 
-    if current_album is None or current_track_index >= len(current_album.get("tracklist", [])):
+    if current_track_index >= len(current_album.get("tracklist", [])):
         print("[INFO] Albumkant is afgelopen, terug naar luistermodus.")
         reset_to_listening_mode()
-        force_initial_recognition = True   # <-- Belangrijk! Direct weer beginnen met luisteren.
         return
 
-    track = current_album["tracklist"][current_track_index]
-    title = clean_title(track["title"])
-    minutes, seconds = map(int, track.get("duration", "0:00").split(":"))
-    current_track_duration = minutes * 60 + seconds
-
-    cover = current_album.get("images", [{}])[0].get("uri", "")
-    update_now_playing(title, current_album["artists"][0]["name"], cover)
-
-    current_track_index += 1
-
-
-    track = current_album["tracklist"][current_track_index]
-    title = clean_title(track["title"])
-    minutes, seconds = map(int, track.get("duration", "0:00").split(":"))
-    current_track_duration = minutes * 60 + seconds
-
-    cover = current_album.get("images", [{}])[0].get("uri", "")
-    update_now_playing(title, current_album["artists"][0]["name"], cover)
-
-    current_track_index += 1
-
+    show_current_track()
 
 def reset_to_listening_mode():
-    global current_album, current_track_index, current_track_duration
+    global current_album, current_track_index, current_track_duration, force_initial_recognition
     current_album = None
     current_track_index = 0
     current_track_duration = 0
-
+    force_initial_recognition = True
 
 force_initial_recognition = True
 discogs_collection = fetch_all_discogs_releases()
@@ -232,7 +216,7 @@ while True:
                 if album_data:
                     current_album = album_data
                     current_track_index = find_track_index_in_album(title, album_data["tracklist"])
-                    show_next_track()
+                    show_current_track()
 
                 force_initial_recognition = False
 
