@@ -15,8 +15,6 @@ ACR_ACCESS_KEY = "d81b9041a5088eefc54fe9d951e8f40b"
 ACR_ACCESS_SECRET = "T7a8zHSW56NFCBJge5pNYTfZpB0vNlMxwujnyFYn"
 
 # Discogs credentials
-DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
-DISCOGS_SECRET = "wVvhtEfwYjwVPZhrwDPZLMBhLqANLBvW"
 DISCOGS_USERNAME = "tomkatsman"
 DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 
@@ -29,10 +27,10 @@ last_track = None
 def clean_title(title):
     cleaned = re.sub(r"\(.*?\)", "", title)
     cleaned = re.sub(r"\[.*?\]", "", cleaned)
-    to_remove = ["Remaster", "Deluxe", "Live", "Edition", "Official Video", "Remastered", "Bonus Track"]
+    to_remove = ["Remaster", "Deluxe", "Live", "Edition", "Official Video", "2011", "2021", "2022", "Remixed"]
     for word in to_remove:
         cleaned = cleaned.replace(word, "")
-    return cleaned.strip()
+    return cleaned.strip().lower()
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -51,10 +49,6 @@ def capture_stream(duration=10):
 
     rms = audioop.rms(buffer, 2)
     print(f"[DEBUG] Captured {len(buffer)} bytes, RMS volume: {rms}")
-
-    if rms < 100:
-        print("[WARN] Audio volume lijkt erg laag, mogelijk probleem met input.")
-
     return buffer
 
 def recognize_audio(audio_bytes):
@@ -82,31 +76,48 @@ def recognize_audio(audio_bytes):
 
 def extract_metadata(result):
     music = result.get('metadata', {}).get('music', [{}])[0]
-    title = music.get('title', 'Unknown')
-    artist = ", ".join([a['name'] for a in music.get('artists', [])])
-    album = music.get('album', {}).get('name', 'Unknown')
-    cover = music.get('album', {}).get('cover', '')
-    return title, artist, album, cover
+    return music.get('title', 'Unknown'), ", ".join([a['name'] for a in music.get('artists', [])]), music.get('album', {}).get('name', '')
 
-def find_album_cover_on_discogs(artist, track_title):
-    clean_track_title = clean_title(track_title)
-    print(f"[INFO] Searching Discogs collection for artist '{artist}' and track '{clean_track_title}'...")
-
+def fetch_discogs_collection():
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
-    response = requests.get(url, headers={
-        "Authorization": f"Discogs token={DISCOGS_TOKEN}"
-    })
+    releases = []
+    page = 1
 
-    if response.status_code != 200:
-        print(f"[WARN] Failed to fetch collection from Discogs. Status: {response.status_code}")
-        return ""
+    while True:
+        response = requests.get(url, headers={
+            "Authorization": f"Discogs token={DISCOGS_TOKEN}"
+        }, params={"page": page, "per_page": 100})
 
-    releases = response.json().get("releases", [])
-    for release in releases:
-        basic_info = release.get("basic_information", {})
-        release_artist = basic_info.get("artists", [{}])[0].get("name", "").lower()
+        if response.status_code != 200:
+            print(f"[WARN] Failed to fetch collection page {page} from Discogs (status {response.status_code})")
+            break
 
-        if artist.lower() not in release_artist:
+        page_data = response.json()
+        releases.extend(page_data.get("releases", []))
+
+        if page >= page_data.get("pagination", {}).get("pages", 1):
+            break
+
+        page += 1
+
+    return releases
+
+def find_cover(artist, album, track):
+    cleaned_track = clean_title(track)
+    collection = fetch_discogs_collection()
+
+    # 1. Directe match op album
+    for release in collection:
+        basic = release.get("basic_information", {})
+        if artist.lower() in basic.get("artists", [{}])[0].get("name", "").lower() and album.lower() in basic.get("title", "").lower():
+            print(f"[INFO] Direct album match gevonden: {basic.get('title')}")
+            return basic.get("cover_image", "")
+
+    # 2. Geen album match -> door alle releases zoeken op track (slow path)
+    print("[INFO] Geen direct album match. Nu zoeken op track in alle releases van de artiest.")
+    for release in collection:
+        basic = release.get("basic_information", {})
+        if artist.lower() not in basic.get("artists", [{}])[0].get("name", "").lower():
             continue
 
         release_id = release.get("id")
@@ -117,17 +128,14 @@ def find_album_cover_on_discogs(artist, track_title):
         if release_response.status_code != 200:
             continue
 
-        release_data = release_response.json()
-        tracklist = release_data.get("tracklist", [])
+        tracks = release_response.json().get("tracklist", [])
+        for track_info in tracks:
+            cleaned_discogs_track = clean_title(track_info.get("title", ""))
+            if cleaned_track == cleaned_discogs_track:
+                print(f"[INFO] Track match gevonden op release: {basic.get('title')}")
+                return basic.get("cover_image", "")
 
-        for track in tracklist:
-            clean_track_name = clean_title(track.get("title", ""))
-            if clean_track_title.lower() == clean_track_name.lower():
-                cover_image = basic_info.get("cover_image", "")
-                print(f"[INFO] Found matching album cover on Discogs: {cover_image}")
-                return cover_image
-
-    print("[INFO] No matching album found for this track in your collection.")
+    print("[WARN] Geen match gevonden in jouw collectie.")
     return ""
 
 while True:
@@ -135,8 +143,7 @@ while True:
     result = recognize_audio(audio)
 
     if result.get('status', {}).get('code') == 0:
-        title, artist, album, acr_cover = extract_metadata(result)
-        clean_track_title = clean_title(title)
+        title, artist, album = extract_metadata(result)
 
         current_track = f"{artist} - {title}"
         if current_track == last_track:
@@ -145,23 +152,14 @@ while True:
             poll_interval = 15
             last_track = current_track
 
-        cover = acr_cover or find_album_cover_on_discogs(artist, title)
-
-        now_playing_data = {
-            "title": title,
-            "clean_title": clean_track_title,
-            "artist": artist,
-            "album": album,
-            "cover": cover,
-            "source": "ACRCloud" if acr_cover else "Discogs"
-        }
+        cover = find_cover(artist, album, title)
 
         with open(NOW_PLAYING_PATH, "w") as f:
-            json.dump(now_playing_data, f)
+            json.dump({"title": title, "artist": artist, "cover": cover}, f)
 
-        print(f"[INFO] Now playing: {artist} - {title} (Cover source: {now_playing_data['source']})")
+        print(f"[INFO] Now playing: {artist} - {title} (Cover source: {'Discogs' if cover else 'None'})")
     else:
-        print(f"[WARN] Geen track herkend. ACRCloud status: {result.get('status')}. Poll interval blijft 15 seconden.")
+        print(f"[WARN] Geen track herkend. Status: {result.get('status')}. Poll interval blijft 15 seconden.")
         poll_interval = 15
 
     time.sleep(poll_interval)
