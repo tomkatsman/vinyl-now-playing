@@ -14,7 +14,8 @@ ACR_ACCESS_SECRET = "7UklrI2av7z29joyPhOVJj0cT3RN7KmKAnx3vcdG"
 # Discogs credentials
 DISCOGS_KEY = "wQvXfQjNsyxrHlmSiCUu"
 DISCOGS_SECRET = "wVvhtEfwYjwVPZhrwDPZLMBhLqANLBvW"
-DISCOGS_USERNAME = "jouw_discogs_username"  # <- Vul hier jouw Discogs gebruikersnaam in
+DISCOGS_USERNAME = "tomkatsman"  # <- Vul hier jouw Discogs gebruikersnaam in
+DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
@@ -70,9 +71,10 @@ def extract_metadata(result):
 def find_album_cover_on_discogs(artist, album):
     print(f"[INFO] Searching Discogs for '{artist} - {album}' in your collection...")
     url = f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases"
-    response = requests.get(url, params={
-        "token": f"{DISCOGS_KEY}-{DISCOGS_SECRET}"
+    response = requests.get(url, headers={
+    "Authorization": f"Discogs token={DISCOGS_TOKEN}"
     })
+
     if response.status_code != 200:
         print("[WARN] Failed to fetch collection from Discogs.")
         return ""
