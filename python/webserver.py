@@ -1,26 +1,35 @@
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify
 import json
 import os
 
-# Bepaal de absolute paden correct ongeacht waar het script wordt gestart
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-WEB_DIR = os.path.join(BASE_DIR, "web")
-NOW_PLAYING_PATH = os.path.join(WEB_DIR, "now_playing.json")
+app = Flask(__name__)
 
-# Maak de Flask app aan met de juiste static folder
-app = Flask(__name__, static_folder=WEB_DIR)
+NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), '../web/now_playing.json')
+
+# Cache voor de laatst bekende track
+last_known_now_playing = {
+    "title": "Listening...",
+    "artist": "",
+    "cover": "default-cover.jpg"
+}
+
+def load_now_playing():
+    global last_known_now_playing
+    try:
+        with open(NOW_PLAYING_PATH, 'r') as f:
+            data = json.load(f)
+
+        # Alleen als er echt iets in staat (dus geen lege "Listening...")
+        if data.get("title") and data.get("artist"):
+            last_known_now_playing = data
+
+    except Exception as e:
+        print(f"Error reading now_playing.json: {e}")
 
 @app.route('/now-playing')
 def now_playing():
-    if os.path.exists(NOW_PLAYING_PATH):
-        with open(NOW_PLAYING_PATH, 'r') as f:
-            data = json.load(f)
-        return jsonify(data)
-    return jsonify({"title": "Listening...", "artist": "", "cover": ""})
-
-@app.route('/')
-def index():
-    return send_from_directory(WEB_DIR, 'index.html')
+    load_now_playing()
+    return jsonify(last_known_now_playing)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
