@@ -78,25 +78,30 @@ def recognize_audio(audio_bytes):
 # Metadata extractie
 def extract_metadata(result):
     metadata = result.get('metadata', {})
-    candidates = []
 
-    # Verzamel alle tracks uit zowel 'music' als 'humming' (en eventueel andere)
-    for key in ['music', 'humming']:
-        candidates.extend(metadata.get(key, []))
+    # Combineer alle mogelijke categorieën waar matches kunnen zitten
+    all_tracks = metadata.get('music', []) + metadata.get('humming', [])
 
-    if not candidates:
+    if not all_tracks:
         log("WARN", "Geen geldige track gevonden in de ACRCloud response.")
         return "Unknown", "Unknown", "Unknown", 0, 0
 
-    # Kies de beste match (hoogste score)
-    best_match = max(candidates, key=lambda m: m.get('score', 0))
+    # Kies de beste match op basis van score
+    best_match = max(all_tracks, key=lambda m: m.get('score', 0))
 
-    # Extract de data (en maak fallback voor missende velden)
     title = best_match.get('title', 'Unknown')
-    artist = best_match.get('artists', [{}])[0].get('name', 'Unknown')
+
+    # In humming zit de artiest vaak net iets anders, dus vang dat op
+    if 'artists' in best_match:
+        artist = best_match['artists'][0]['name']
+    elif 'langs' in best_match:
+        artist = best_match['langs'][0]['name']  # Als noodoplossing
+    else:
+        artist = "Unknown"
+
     album = best_match.get('album', {}).get('name', 'Unknown')
     play_offset_ms = best_match.get('play_offset_ms', 0)
-    duration_ms = best_match.get('duration_ms', 1)
+    duration_ms = best_match.get('duration_ms', 0)
 
     return clean_title(title), artist, clean_title(album), play_offset_ms, duration_ms
 
