@@ -106,15 +106,17 @@ def fetch_discogs_collection():
     log("INFO", f"Fetched {len(releases)} releases from Discogs.")
     return releases
 
-def find_album_and_tracklist(artist, album, collection):
+def find_album_and_tracklist(artist, album, collection, track_title):
     for release in collection:
         if artist.lower() not in release['basic_information']['artists'][0]['name'].lower():
             continue
-        discogs_album = clean_title(release['basic_information']['title'])
-        if SequenceMatcher(None, album.lower(), discogs_album.lower()).ratio() > 0.7:
-            release_id = release['id']
-            details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
-            return details
+        release_id = release['id']
+        details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
+
+        for track in details.get('tracklist', []):
+            if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(track_title).lower()).ratio() > 0.7:
+                return details
+
     return None
 
 def find_track_index(title, tracklist):
@@ -160,7 +162,7 @@ while True:
             reset_to_listening_mode()
         elif force_initial_recognition:
             title, artist, album, offset = extract_metadata(recognize_audio(audio))
-            album_data = find_album_and_tracklist(artist, album, collection)
+            album_data = find_album_and_tracklist(artist, album, collection, title)
             if album_data:
                 current_album = album_data
                 current_track_index = find_track_index(title, album_data['tracklist'])
