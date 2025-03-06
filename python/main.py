@@ -74,16 +74,18 @@ def recognize_audio(audio_bytes):
     return result
 
 def extract_metadata(result):
-    music_list = result.get('metadata', {}).get('music', [])
+    metadata = result.get('metadata', {})
+    music_list = metadata.get('music', []) or metadata.get('humming', [])
+
     if not music_list:
         log("WARNING", "Geen herkenbare muziek gevonden.")
         return "Unknown", "Unknown", "Unknown", 0
 
-    music = music_list[0]  # Standaard eerste match
+    music = music_list[0]
     return (
         clean_title(music.get('title', 'Unknown')),
-        music['artists'][0]['name'],
-        clean_title(music['album']['name']),
+        music['artists'][0]['name'] if music.get('artists') else "Unknown Artist",
+        clean_title(music['album'].get('name', 'Unknown Album') if music.get('album') else "Unknown Album"),
         music.get('play_offset_ms', 0)
     )
 
