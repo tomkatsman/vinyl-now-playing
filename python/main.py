@@ -122,6 +122,12 @@ def find_album_and_tracklist(artist, album, collection, track_title):
 
     return None
 
+def find_track_index(title, tracklist):
+    for index, track in enumerate(tracklist):
+        if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(title).lower()).ratio() > 0.7:
+            return index
+    return 0
+
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
     with open(NOW_PLAYING_PATH, "w") as f:
         json.dump({
