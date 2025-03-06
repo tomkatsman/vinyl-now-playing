@@ -80,10 +80,12 @@ def extract_metadata(result):
         return "Unknown", "Unknown", "Unknown", 0
 
     music = music_list[0]  # Standaard eerste match
-    return clean_title(music.get('title', 'Unknown')),
-           music['artists'][0]['name'],
-           clean_title(music['album']['name']),
-           music.get('play_offset_ms', 0)
+    return (
+        clean_title(music.get('title', 'Unknown')),
+        music['artists'][0]['name'],
+        clean_title(music['album']['name']),
+        music.get('play_offset_ms', 0)
+    )
 
 def fetch_discogs_collection():
     releases, page = [], 1
