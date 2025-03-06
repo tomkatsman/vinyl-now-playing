@@ -77,14 +77,28 @@ def recognize_audio(audio_bytes):
 
 # Metadata extractie
 def extract_metadata(result):
-    music = result.get('metadata', {}).get('music', [{}])[0]
-    return (
-        clean_title(music.get('title', 'Unknown')),
-        music['artists'][0]['name'],
-        clean_title(music['album']['name']),
-        music.get('play_offset_ms', 0),
-        music.get('duration_ms', 1)  # Fallback op 1 om delen door 0 te voorkomen
-    )
+    metadata = result.get('metadata', {})
+    candidates = []
+
+    # Verzamel alle tracks uit zowel 'music' als 'humming' (en eventueel andere)
+    for key in ['music', 'humming']:
+        candidates.extend(metadata.get(key, []))
+
+    if not candidates:
+        log("WARN", "Geen geldige track gevonden in de ACRCloud response.")
+        return "Unknown", "Unknown", "Unknown", 0, 0
+
+    # Kies de beste match (hoogste score)
+    best_match = max(candidates, key=lambda m: m.get('score', 0))
+
+    # Extract de data (en maak fallback voor missende velden)
+    title = best_match.get('title', 'Unknown')
+    artist = best_match.get('artists', [{}])[0].get('name', 'Unknown')
+    album = best_match.get('album', {}).get('name', 'Unknown')
+    play_offset_ms = best_match.get('play_offset_ms', 0)
+    duration_ms = best_match.get('duration_ms', 1)
+
+    return clean_title(title), artist, clean_title(album), play_offset_ms, duration_ms
 
 # Discogs collectie ophalen
 def fetch_discogs_collection():
