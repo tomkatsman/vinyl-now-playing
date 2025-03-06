@@ -101,15 +101,36 @@ def fetch_discogs_collection():
     log("INFO", f"Fetched {len(releases)} releases from Discogs.")
     return releases
 
-def find_album_and_tracklist(artist, album, collection):
+def find_album_and_tracklist(artist, album, collection, track_title):
+    best_match = None
+    best_ratio = 0.0
+
     for release in collection:
-        if artist.lower() not in release['basic_information']['artists'][0]['name'].lower():
+        release_artist = release['basic_information']['artists'][0]['name'].lower()
+        release_title = clean_title(release['basic_information']['title']).lower()
+
+        if artist.lower() not in release_artist:
             continue
-        discogs_album = clean_title(release['basic_information']['title'])
-        if SequenceMatcher(None, album.lower(), discogs_album.lower()).ratio() > 0.7:
-            release_id = release['id']
-            details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
-            return details
+
+        ratio = SequenceMatcher(None, album.lower(), release_title).ratio()
+        if ratio > 0.7:
+            best_match = release
+            break  # Exacte album match gevonden, direct klaar
+
+        # Als album niet matcht, kijk of de track wel voorkomt
+        release_id = release['id']
+        details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
+
+        for track in details.get('tracklist', []):
+            if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(track_title).lower()).ratio() > 0.7:
+                best_match = release
+                best_ratio = 1.0  # Dit is zeker een goede match
+                break
+
+    if best_match:
+        release_id = best_match['id']
+        return requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
+
     return None
 
 def find_track_index(title, tracklist):
