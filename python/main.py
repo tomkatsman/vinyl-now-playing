@@ -162,15 +162,42 @@ def reset_to_listening_mode():
     current_album, current_track_index, current_track_duration = None, 0, 0
     force_initial_recognition = True
 collection = fetch_discogs_collection()
+
 while True:
     if current_album:
         if current_track_duration > 10:
             time.sleep(current_track_duration - 10)
             log("INFO", "10 seconds until next track...")
         time.sleep(10)
+        reset_to_listening_mode()
     else:
         audio, rms = capture_stream(10)
         if rms < silence_threshold:
             silence_duration += 10
         else:
             silence_duration = 0
+
+        if silence_duration >= silence_required_for_reset:
+            log("INFO", "Resetting to listening mode after silence.")
+            reset_to_listening_mode()
+            continue
+
+        if force_initial_recognition or rms >= silence_threshold:
+            result = recognize_audio(audio)
+            title, artist, album, offset, duration, source = extract_metadata(result)
+
+            if title == "Unknown" and artist == "Unknown":
+                continue
+
+            album_data = find_album_and_tracklist(artist, album, collection, title)
+
+            if album_data:
+                current_album = album_data
+                current_track_index = find_track_index(title, album_data['tracklist'])
+                show_current_track(offset, duration)
+                force_initial_recognition = False
+            else:
+                log("WARNING", f"Track '{title}' van '{artist}' niet gevonden in collectie, tonen zonder album.")
+                update_now_playing(title, artist, None, offset, duration, source)
+
+        time.sleep(1)
