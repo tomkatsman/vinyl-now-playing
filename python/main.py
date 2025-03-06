@@ -128,6 +128,10 @@ def find_track_index(title, tracklist):
             return index
     return 0
 
+def format_time(ms):
+    minutes, seconds = divmod(ms // 1000, 60)
+    return f"{minutes:02}:{seconds:02}"
+
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
     with open(NOW_PLAYING_PATH, "w") as f:
         json.dump({
@@ -145,8 +149,13 @@ def show_current_track(play_offset_ms=0, duration_ms=0):
     track = current_album['tracklist'][current_track_index]
     title = clean_title(track['title'])
     cover = current_album.get('images', [{}])[0].get('uri', '')
-    update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music")
+
+    log("INFO", f"Now playing: {current_album['artists'][0]['name']} - {current_album['title']} (Track {current_track_index+1}/{len(current_album['tracklist'])}, {format_time(play_offset_ms)})")
     current_track_duration = duration_ms // 1000
+    time_until_next = max(current_track_duration - (play_offset_ms // 1000), 0)
+    log("INFO", f"Time until next track: {format_time(time_until_next * 1000)}")
+
+    update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music")
 
 def reset_to_listening_mode():
     global current_album, current_track_index, current_track_duration, force_initial_recognition
@@ -155,8 +164,9 @@ def reset_to_listening_mode():
 collection = fetch_discogs_collection()
 while True:
     if current_album:
-        log("INFO", "10 seconds until next track...")
-        time.sleep(max(current_track_duration - 10, 0))
+        if current_track_duration > 10:
+            time.sleep(current_track_duration - 10)
+            log("INFO", "10 seconds until next track...")
         time.sleep(10)
     else:
         audio, rms = capture_stream(10)
@@ -164,17 +174,3 @@ while True:
             silence_duration += 10
         else:
             silence_duration = 0
-        if silence_duration >= silence_required_for_reset:
-            reset_to_listening_mode()
-        elif force_initial_recognition:
-            title, artist, album, offset, duration, source = extract_metadata(recognize_audio(audio))
-            album_data = find_album_and_tracklist(artist, album, collection, title)
-            if album_data:
-                current_album = album_data
-                current_track_index = find_track_index(title, album_data['tracklist'])
-                show_current_track(offset, duration)
-                force_initial_recognition = False
-            else:
-                log("WARNING", f"Track '{title}' van '{artist}' niet gevonden in collectie, tonen zonder album.")
-                update_now_playing(title, artist, None, offset, duration, source)
-        time.sleep(1)
