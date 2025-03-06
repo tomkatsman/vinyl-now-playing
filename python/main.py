@@ -79,29 +79,32 @@ def recognize_audio(audio_bytes):
 def extract_metadata(result):
     metadata = result.get('metadata', {})
 
-    # Combineer alle mogelijke categorieën waar matches kunnen zitten
-    all_tracks = metadata.get('music', []) + metadata.get('humming', [])
-
-    if not all_tracks:
-        log("WARN", "Geen geldige track gevonden in de ACRCloud response.")
+    if 'music' in metadata:
+        track = metadata['music'][0]
+    elif 'humming' in metadata:
+        track = metadata['humming'][0]
+    elif 'broadcast' in metadata:
+        track = metadata['broadcast'][0]
+    else:
+        log("WARN", "Geen herkenbare track gevonden in ACRCloud response.")
         return "Unknown", "Unknown", "Unknown", 0, 0
 
-    # Kies de beste match op basis van score
-    best_match = max(all_tracks, key=lambda m: m.get('score', 0))
+    # Titel - altijd aanwezig bij zowel music als humming
+    title = track.get('title', 'Unknown')
 
-    title = best_match.get('title', 'Unknown')
+    # Artiest - bij music direct, bij humming soms ook in langs of anders fallback
+    artist = "Unknown"
+    if 'artists' in track:
+        artist = track['artists'][0].get('name', 'Unknown')
+    elif 'langs' in track:
+        artist = track['langs'][0].get('name', 'Unknown')
 
-    # In humming zit de artiest vaak net iets anders, dus vang dat op
-    if 'artists' in best_match:
-        artist = best_match['artists'][0]['name']
-    elif 'langs' in best_match:
-        artist = best_match['langs'][0]['name']  # Als noodoplossing
-    else:
-        artist = "Unknown"
+    # Album - vaak afwezig bij humming
+    album = track.get('album', {}).get('name', 'Unknown')
 
-    album = best_match.get('album', {}).get('name', 'Unknown')
-    play_offset_ms = best_match.get('play_offset_ms', 0)
-    duration_ms = best_match.get('duration_ms', 0)
+    # Offset en duration
+    play_offset_ms = track.get('play_offset_ms', 0)
+    duration_ms = track.get('duration_ms', 0)
 
     return clean_title(title), artist, clean_title(album), play_offset_ms, duration_ms
 
