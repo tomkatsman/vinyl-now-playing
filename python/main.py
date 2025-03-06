@@ -12,7 +12,6 @@ import warnings
 from difflib import SequenceMatcher
 from datetime import datetime
 
-# DeprecationWarning onderdrukken voor audioop
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Config
@@ -29,7 +28,6 @@ silence_required_for_reset = 30
 current_album = None
 current_track_index = 0
 current_track_duration = 0
-last_detected_track = None
 force_initial_recognition = True
 silence_duration = 0
 
@@ -47,11 +45,6 @@ def capture_stream(duration=10):
         buffer.extend(chunk)
         if len(buffer) >= 44100 * 2 * duration:
             break
-    with wave.open("captured_audio.wav", "wb") as wf:
-        wf.setnchannels(2)
-        wf.setsampwidth(2)
-        wf.setframerate(44100)
-        wf.writeframes(buffer)
     rms = audioop.rms(buffer, 2)
     log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}")
     return buffer, rms
@@ -112,14 +105,12 @@ def fetch_discogs_collection():
 
 def find_album_and_tracklist(artist, album, collection, track_title):
     matched_releases = [release for release in collection if artist.lower() in release['basic_information']['artists'][0]['name'].lower()]
-
     for release in matched_releases:
         release_id = release['id']
         details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
         for track in details.get('tracklist', []):
             if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(track_title).lower()).ratio() > 0.7:
                 return details
-
     return None
 
 def find_track_index(title, tracklist):
@@ -128,20 +119,9 @@ def find_track_index(title, tracklist):
             return index
     return 0
 
-def format_time(ms):
-    minutes, seconds = divmod(ms // 1000, 60)
-    return f"{minutes:02}:{seconds:02}"
-
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
     with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump({
-            "title": title,
-            "artist": artist,
-            "cover": cover,
-            "play_offset_ms": play_offset_ms,
-            "duration_ms": duration_ms,
-            "source": source
-        }, f)
+        json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
     log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
 def show_current_track(play_offset_ms=0, duration_ms=0):
@@ -149,55 +129,59 @@ def show_current_track(play_offset_ms=0, duration_ms=0):
     track = current_album['tracklist'][current_track_index]
     title = clean_title(track['title'])
     cover = current_album.get('images', [{}])[0].get('uri', '')
-
-    log("INFO", f"Now playing: {current_album['artists'][0]['name']} - {current_album['title']} (Track {current_track_index+1}/{len(current_album['tracklist'])}, {format_time(play_offset_ms)})")
-    current_track_duration = duration_ms // 1000
-    time_until_next = max(current_track_duration - (play_offset_ms // 1000), 0)
-    log("INFO", f"Time until next track: {format_time(time_until_next * 1000)}")
-
+    log("INFO", f"Now playing: {current_album['artists'][0]['name']} - {title} (Track {current_track_index+1}/{len(current_album['tracklist'])}, {play_offset_ms//60000:02}:{(play_offset_ms//1000)%60:02})")
+    current_track_duration = (duration_ms - play_offset_ms) // 1000
+    log("INFO", f"Time until next track: {current_track_duration//60:02}:{current_track_duration%60:02}")
     update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music")
 
-def reset_to_listening_mode():
-    global current_album, current_track_index, current_track_duration, force_initial_recognition
-    current_album, current_track_index, current_track_duration = None, 0, 0
-    force_initial_recognition = True
 collection = fetch_discogs_collection()
 
 while True:
-    if current_album:
-        if current_track_duration > 10:
-            time.sleep(current_track_duration - 10)
-            log("INFO", "10 seconds until next track...")
-        time.sleep(10)
-        reset_to_listening_mode()
-    else:
-        audio, rms = capture_stream(10)
-        if rms < silence_threshold:
-            silence_duration += 10
-        else:
-            silence_duration = 0
+    audio, rms = capture_stream(10)
 
+    if rms < silence_threshold:
+        silence_duration += 10
         if silence_duration >= silence_required_for_reset:
             log("INFO", "Resetting to listening mode after silence.")
-            reset_to_listening_mode()
-            continue
+            current_album = None
+            current_track_index = 0
+            force_initial_recognition = True
+        continue
+    else:
+        silence_duration = 0
 
-        if force_initial_recognition or rms >= silence_threshold:
-            result = recognize_audio(audio)
-            title, artist, album, offset, duration, source = extract_metadata(result)
+    result = recognize_audio(audio)
+    title, artist, album, offset, duration, source = extract_metadata(result)
 
-            if title == "Unknown" and artist == "Unknown":
-                continue
+    if title == "Unknown":
+        continue
 
-            album_data = find_album_and_tracklist(artist, album, collection, title)
+    album_data = find_album_and_tracklist(artist, album, collection, title)
 
-            if album_data:
-                current_album = album_data
-                current_track_index = find_track_index(title, album_data['tracklist'])
-                show_current_track(offset, duration)
-                force_initial_recognition = False
+    if album_data:
+        current_album = album_data
+        current_track_index = find_track_index(title, current_album['tracklist'])
+        show_current_track(offset, duration)
+
+        while current_track_duration > 0:
+            if current_track_duration > 10:
+                time.sleep(current_track_duration - 10)
+                log("INFO", "10 seconds until next track...")
+                time.sleep(10)
             else:
-                log("WARNING", f"Track '{title}' van '{artist}' niet gevonden in collectie, tonen zonder album.")
-                update_now_playing(title, artist, None, offset, duration, source)
+                time.sleep(current_track_duration)
+            current_track_index += 1
+            if current_track_index >= len(current_album['tracklist']):
+                log("INFO", "End of album reached, resetting to listening mode.")
+                current_album = None
+                break
+            else:
+                next_track = current_album['tracklist'][current_track_index]
+                duration_parts = next_track['duration'].split(":")
+                duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
+                show_current_track(0, duration_ms)
+    else:
+        log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
+        update_now_playing(title, artist, None, offset, duration, source)
 
-        time.sleep(1)
+    time.sleep(1)
