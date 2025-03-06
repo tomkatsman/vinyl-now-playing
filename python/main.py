@@ -78,7 +78,13 @@ def recognize_audio(audio_bytes):
 # Metadata extractie
 def extract_metadata(result):
     music = result.get('metadata', {}).get('music', [{}])[0]
-    return clean_title(music.get('title', 'Unknown')), music['artists'][0]['name'], clean_title(music['album']['name']), music.get('play_offset_ms', 0)
+    return (
+        clean_title(music.get('title', 'Unknown')),
+        music['artists'][0]['name'],
+        clean_title(music['album']['name']),
+        music.get('play_offset_ms', 0),
+        music.get('duration_ms', 1)  # Fallback op 1 om delen door 0 te voorkomen
+    )
 
 # Discogs collectie ophalen
 def fetch_discogs_collection():
@@ -113,9 +119,15 @@ def find_track_index(title, tracklist):
     return 0
 
 # Now playing updaten
-def update_now_playing(title, artist, cover):
+def update_now_playing(title, artist, cover, play_offset_ms, duration_ms):
     with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump({"title": title, "artist": artist, "cover": cover}, f)
+        json.dump({
+            "title": title,
+            "artist": artist,
+            "cover": cover,
+            "play_offset_ms": play_offset_ms,
+            "duration_ms": duration_ms
+        }, f)
     log("INFO", f"Now playing: {artist} - {title}")
 
 # Huidige track tonen
@@ -123,16 +135,18 @@ def show_current_track(play_offset_ms=0):
     global current_track_duration
     track = current_album['tracklist'][current_track_index]
     title = clean_title(track['title'])
-    minutes, seconds = divmod(play_offset_ms // 1000, 60)
-    track_duration = sum(int(x) * 60**i for i, x in enumerate(reversed(track['duration'].split(":"))))
-    time_until_next = max(track_duration - (play_offset_ms // 1000), 0)
+    duration = track.get('duration', '0:00')
+    minutes, seconds = map(int, duration.split(":"))
+    track_duration = minutes * 60 + seconds
 
     cover = current_album.get('images', [{}])[0].get('uri', '')
-    update_now_playing(title, current_album['artists'][0]['name'], cover)
-    log("INFO", f"Now playing: {current_album['artists'][0]['name']} - {title} (Track {current_track_index + 1}/{len(current_album['tracklist'])}, {minutes:02}:{seconds:02})")
-    log("INFO", f"Time until next track: {time_until_next//60:02}:{time_until_next%60:02}")
 
-    current_track_duration = time_until_next
+    update_now_playing(
+        title, current_album['artists'][0]['name'], cover,
+        play_offset_ms, track_duration
+    )
+
+    current_track_duration = track_duration - (play_offset_ms // 1000)
 
 # Naar volgende track
 def show_next_track():
@@ -142,7 +156,7 @@ def show_next_track():
         log("INFO", "Albumkant is afgelopen, terug naar luistermodus.")
         reset_to_listening_mode()
     else:
-        show_current_track()
+        show_current_track(0)
 
 # Terug naar luisteren
 def reset_to_listening_mode():
@@ -164,7 +178,7 @@ while True:
             reset_to_listening_mode()
         else:
             if force_initial_recognition:
-                title, artist, album, offset = extract_metadata(recognize_audio(audio))
+                title, artist, album, offset, duration = extract_metadata(recognize_audio(audio))
                 album_data = find_album_and_tracklist(artist, album, collection)
                 if album_data:
                     current_album = album_data
