@@ -36,7 +36,7 @@ def log(level, message):
     print(f"[{level}] {timestamp} {message}")
 
 def clean_title(title):
-    return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|Live|Edition|Official Video|\d{4})", "", title).strip()
+    return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|\bLive\b|Edition|Official Video|\d{4})", "", title).strip()
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
