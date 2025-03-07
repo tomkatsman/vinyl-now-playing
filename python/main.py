@@ -85,7 +85,7 @@ def extract_metadata(result):
 
     play_offset_ms = music.get('play_offset_ms', 0)
     
-    # Verschuif alles één minuut naar voren om vertraging te compenseren
+    # Verschuif alles één minuut naar voren om vertraging te compenseren.
     play_offset_ms = max(play_offset_ms - 60000, 0)
 
     return (
