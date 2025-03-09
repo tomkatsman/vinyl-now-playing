@@ -174,23 +174,20 @@ collection = fetch_discogs_collection()
 
 while True:
     volume = get_stream_volume()
-    if volume is not None:
-        print(f"[INFO] Huidig volume: {volume} dBFS")
-    time.sleep(5)
+
+    if volume is None:
+        log("WARNING", "Kon volume niet meten, wachten en opnieuw proberen.")
+        time.sleep(5)
+        continue
+
+    if volume < -50:  # Als volume lager is dan -50 dB, beschouwen we het als stilte
+        log("INFO", "Geen muziek gedetecteerd, wachten...")
+        time.sleep(5)
+        continue
+
+    log("INFO", "Muziek gedetecteerd! Start herkenning...")
     
     audio, rms = capture_stream(10)
-
-    if rms < silence_threshold:
-        silence_duration += 10
-        if silence_duration >= silence_required_for_reset:
-            log("INFO", "Resetting to listening mode after silence.")
-            current_album = None
-            current_track_index = 0
-            force_initial_recognition = True
-        continue
-    else:
-        silence_duration = 0
-
     result = recognize_audio(audio)
     title, artist, album, offset, duration, source = extract_metadata(result)
 
