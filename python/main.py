@@ -231,13 +231,3 @@ while True:
         update_now_playing(title, artist, None, offset, duration, source)
 
     time.sleep(1)
-
-
-
-  "title": "Roller Derby Queen",
-    "artist": "Jim Croce",
-    "cover": "https://i.discogs.com/atxMU7zc3OlUrd041ZxThF0bax62F4o6ILujx-LB42s/rs:fit/g:sm/q:90/h:598/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTQzOTkz/MDktMTUyMzAxNDEx/NS0yMDQwLmpwZWc.jpeg",
-    "play_offset_ms": 0,
-    "duration_ms": 208000,
-    "source": "music"
-}
