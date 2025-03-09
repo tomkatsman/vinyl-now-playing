@@ -181,12 +181,20 @@ while True:
         continue
 
     if volume < -50:  # Als volume lager is dan -50 dB, beschouwen we het als stilte
-        log("INFO", "Geen muziek gedetecteerd, wachten...")
+        log("INFO", "Geen muziek gedetecteerd, bijwerken van now-playing JSON...")
+        update_now_playing(
+            title="Kies een plaat uit en zet hem aan",
+            artist="",
+            cover="https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Vinyl_record.svg/400px-Vinyl_record.svg.png",
+            play_offset_ms="",
+            duration_ms="",
+            source=""
+        )
         time.sleep(5)
         continue
 
     log("INFO", "Muziek gedetecteerd! Start herkenning...")
-    
+
     audio, rms = capture_stream(10)
     result = recognize_audio(audio)
     title, artist, album, offset, duration, source = extract_metadata(result)
@@ -223,3 +231,4 @@ while True:
         update_now_playing(title, artist, None, offset, duration, source)
 
     time.sleep(1)
+
