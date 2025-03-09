@@ -39,18 +39,25 @@ def capture_stream(duration=10):
             break
     return buffer
 
-def detect_audio_presence(audio_bytes, threshold=5000):
+def detect_audio_presence(audio_bytes, baseline_energy, threshold_factor=0.999):
     """
-    Analyseert de frequentie-inhoud van een audiostream om te bepalen of er echt geluid is.
-    threshold: minimale frequentie-energie om te bepalen of er muziek speelt.
+    Analyseert de frequentie-inhoud van een audiostream om te bepalen of er echt muziek speelt.
+    baseline_energy: gemeten basisenergie in stilte
+    threshold_factor: percentage van de baseline waarbij muziek wordt herkend (lager dan baseline)
     """
     audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
     if len(audio_np) == 0:
         log("WARNING", "Gelezen audiobuffer is leeg!")
         return False
+
     energy = np.sum(np.abs(audio_np))
-    log("DEBUG", f"Audio-energie: {energy}, drempel: {threshold}")
-    return energy > threshold
+
+    # Bereken de nieuwe drempel op basis van de baseline
+    threshold = baseline_energy * threshold_factor
+
+    log("DEBUG", f"Audio-energie: {energy}, Drempel: {threshold} (Baseline: {baseline_energy})")
+
+    return energy < threshold  # Muziek wordt herkend als de energie onder de drempel komt
 
 def wait_for_audio_trigger(check_interval=1):
     log("INFO", "Wachten op hoorbaar geluid in de stream...")
