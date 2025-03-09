@@ -129,32 +129,9 @@ def find_track_index(title, tracklist):
     return 0
 
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
-    """
-    Werkt de now-playing informatie bij. Als er geen muziek wordt herkend,
-    wordt een standaardmelding weergegeven.
-    """
-    now_playing_data = {
-        "title": title,
-        "artist": artist,
-        "cover": cover,
-        "play_offset_ms": play_offset_ms,
-        "duration_ms": duration_ms,
-        "source": source
-    }
-
-    try:
-        log("DEBUG", f"Schrijft JSON naar {NOW_PLAYING_PATH}: {json.dumps(now_playing_data, indent=4)}")
-        
-        with open(NOW_PLAYING_PATH, "w") as f:
-            json.dump(now_playing_data, f)
-            f.flush()  # Zorgt ervoor dat de data direct naar de schijf wordt geschreven
-            os.fsync(f.fileno())  # Forseert een directe schijf-update op sommige systemen
-        
-        log("INFO", f"Now playing JSON geüpdatet: {title}")
-    
-    except Exception as e:
-        log("ERROR", f"Fout bij het bijwerken van now-playing JSON: {e}")
-
+    with open(NOW_PLAYING_PATH, "w") as f:
+        json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
+    log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
 def show_current_track(play_offset_ms=0, duration_ms=0):
     global current_track_duration
@@ -209,8 +186,8 @@ while True:
             title="Kies een plaat uit en zet hem aan",
             artist="",
             cover="https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Vinyl_record.svg/400px-Vinyl_record.svg.png",
-            play_offset_ms="",
-            duration_ms="",
+            play_offset_ms=0,
+            duration_ms=0,
             source=""
         )
         time.sleep(5)
@@ -255,3 +232,12 @@ while True:
 
     time.sleep(1)
 
+
+
+  "title": "Roller Derby Queen",
+    "artist": "Jim Croce",
+    "cover": "https://i.discogs.com/atxMU7zc3OlUrd041ZxThF0bax62F4o6ILujx-LB42s/rs:fit/g:sm/q:90/h:598/w:600/czM6Ly9kaXNjb2dz/LWRhdGFiYXNlLWlt/YWdlcy9SLTQzOTkz/MDktMTUyMzAxNDEx/NS0yMDQwLmpwZWc.jpeg",
+    "play_offset_ms": 0,
+    "duration_ms": 208000,
+    "source": "music"
+}
