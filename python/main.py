@@ -132,14 +132,27 @@ def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source
 
 def wait_for_audio_trigger(check_interval=1):
     log("INFO", "Wachten op audio-trigger (volume-toename)...")
-    previous_rms = 0
+    previous_rms = None
+    threshold_count = 0  # Telt hoe vaak een verhoging wordt gedetecteerd
 
     while True:
         _, rms = capture_stream(check_interval)
-        if previous_rms > 0 and rms > previous_rms * trigger_increase_factor and rms > volume_threshold:
-            log("INFO", f"Volume-toename gedetecteerd (RMS: {previous_rms} -> {rms}). Trigger geactiveerd.")
-            return
-        previous_rms = rms
+        log("DEBUG", f"Actueel RMS: {rms}, Vorige RMS: {previous_rms}")
+
+        if previous_rms is not None:
+            # Controleer of er een significante toename is
+            if rms > previous_rms * trigger_increase_factor and rms > volume_threshold:
+                threshold_count += 1
+                log("DEBUG", f"Volume-stijging {threshold_count}/3 gedetecteerd...")
+                
+                # Zorg ervoor dat de stijging een paar keer voorkomt om toevallige spikes te voorkomen
+                if threshold_count >= 3:
+                    log("INFO", f"Volume-toename bevestigd na {threshold_count} metingen. Trigger geactiveerd.")
+                    return  # Stop met wachten en ga verder
+            else:
+                threshold_count = 0  # Reset de teller als de stijging stopt
+
+        previous_rms = rms  # Update vorige RMS-waarde
 
 collection = fetch_discogs_collection()
 
