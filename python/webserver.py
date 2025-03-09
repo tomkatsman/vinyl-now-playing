@@ -27,7 +27,7 @@ def load_now_playing():
         return {
             "title": "Kies een plaat uit en zet hem aan",
             "artist": "",
-            "cover": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Vinyl_record.svg/400px-Vinyl_record.svg.png",
+            "cover": "https://img.freepik.com/free-vector/vinyl-retro-music-illustration_24877-60144.jpg",
             "play_offset_ms": 0,
             "duration_ms": 0,
             "source": ""

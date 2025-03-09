@@ -129,23 +129,9 @@ def find_track_index(title, tracklist):
     return 0
 
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
-    new_data = {
-        "title": title,
-        "artist": artist,
-        "cover": cover,
-        "play_offset_ms": play_offset_ms,
-        "duration_ms": duration_ms,
-        "source": source
-    }
-
-    # Dwing het verwijderen van het oude bestand af zodat wijzigingen altijd worden doorgevoerd
-    if os.path.exists(NOW_PLAYING_PATH):
-        os.remove(NOW_PLAYING_PATH)  # Verwijder het oude bestand
-
     with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump(new_data, f)
-
-    log("INFO", f"Now playing JSON geüpdatet: {title}")
+        json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
+    log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
 def show_current_track(play_offset_ms=0, duration_ms=0):
     global current_track_duration
@@ -199,7 +185,7 @@ while True:
         update_now_playing(
             title="Kies een plaat uit en zet hem aan",
             artist="",
-            cover="https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Vinyl_record.svg/400px-Vinyl_record.svg.png",
+            cover="https://img.freepik.com/free-vector/vinyl-retro-music-illustration_24877-60144.jpg",
             play_offset_ms=0,
             duration_ms=0,
             source=""
@@ -223,23 +209,40 @@ while True:
         current_track_index = find_track_index(title, current_album['tracklist'])
         show_current_track(offset, duration)
 
-        while current_track_duration > 0:
-            if current_track_duration > 10:
-                time.sleep(current_track_duration - 10)
-                log("INFO", "10 seconds until next track...")
-                time.sleep(10)
-            else:
-                time.sleep(current_track_duration)
-            current_track_index += 1
-            if current_track_index >= len(current_album['tracklist']):
-                log("INFO", "End of album reached, resetting to listening mode.")
-                current_album = None
-                break
-            else:
-                next_track = current_album['tracklist'][current_track_index]
-                duration_parts = next_track['duration'].split(":")
-                duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
-                show_current_track(0, duration_ms)
+    while current_track_duration > 0:
+        # Check of het volume onder de drempelwaarde is gezakt
+        volume = get_stream_volume()
+        if volume is not None and volume < -50:
+            log("INFO", "Geen muziek meer gedetecteerd tijdens afspelen, reset naar luistermodus...")
+            update_now_playing(
+                title="Kies een plaat uit en zet hem aan",
+                artist="",
+                cover="https://img.freepik.com/free-vector/vinyl-retro-music-illustration_24877-60144.jpg",
+                play_offset_ms=0,
+                duration_ms=0,
+                source=""
+            )
+            current_album = None
+            break  # Stop de loop en ga terug naar het wachten op een nieuwe plaat
+
+        if current_track_duration > 10:
+            time.sleep(current_track_duration - 10)
+            log("INFO", "10 seconds until next track...")
+            time.sleep(10)
+        else:
+            time.sleep(current_track_duration)
+        
+        current_track_index += 1
+        if current_track_index >= len(current_album['tracklist']):
+            log("INFO", "End of album reached, resetting to listening mode.")
+            current_album = None
+            break
+        else:
+            next_track = current_album['tracklist'][current_track_index]
+            duration_parts = next_track['duration'].split(":")
+            duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
+            show_current_track(0, duration_ms)
+                
     else:
         log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
         update_now_playing(title, artist, None, offset, duration, source)
