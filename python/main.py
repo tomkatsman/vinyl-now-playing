@@ -11,6 +11,9 @@ import audioop
 import warnings
 from difflib import SequenceMatcher
 from datetime import datetime
+import subprocess
+import re
+import time
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -140,9 +143,41 @@ def show_current_track(play_offset_ms=0, duration_ms=0):
     log("INFO", f"Time until next track: {current_track_duration//60:02}:{current_track_duration%60:02}")
     update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music")
 
+def get_stream_volume():
+    """
+    Meet het gemiddelde volume van de Icecast-stream met FFmpeg.
+    Retourneert het volume in dBFS (Decibels Full Scale).
+    """
+    try:
+        cmd = [
+            "ffmpeg", "-i", ICECAST_URL, "-t", "2", "-af", "volumedetect", "-f", "null", "-"
+        ]
+        result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
+
+        # Zoek naar het gemeten volume in de uitvoer
+        volume_lines = [line for line in result.stderr.split("\n") if "mean_volume" in line]
+        if not volume_lines:
+            print("[WARNING] Kon geen volume meten met FFmpeg.")
+            return None
+
+        # Extract volume value
+        mean_volume = float(re.search(r"mean_volume: ([\-\d\.]+) dB", volume_lines[0]).group(1))
+        print(f"[DEBUG] Gemeten volume: {mean_volume} dBFS")
+        return mean_volume
+    except Exception as e:
+        print(f"[ERROR] Fout bij het meten van volume: {e}")
+        return None
+
+# Simpel testscript dat elke 5 seconden het volume meet
+
 collection = fetch_discogs_collection()
 
 while True:
+    volume = get_stream_volume()
+    if volume is not None:
+        print(f"[INFO] Huidig volume: {volume} dBFS")
+    time.sleep(5)
+    
     audio, rms = capture_stream(10)
 
     if rms < silence_threshold:
