@@ -60,13 +60,15 @@ def detect_audio_presence(audio_bytes, baseline_energy, threshold_factor=0.999):
     return energy < threshold  # Muziek wordt herkend als de energie onder de drempel komt
 
 def wait_for_audio_trigger(check_interval=1):
-    log("INFO", "Wachten op hoorbaar geluid in de stream...")
+    baseline_energy = measure_baseline_energy()  # Meet de ruis voor de threshold
+
+    log("INFO", "Wachten op hoorbare muziek in de stream...")
     silent_count = 0
     required_changes = 3
 
     while True:
         audio = capture_stream(check_interval)
-        if detect_audio_presence(audio):
+        if detect_audio_presence(audio, baseline_energy):  # baseline_energy wordt hier doorgegeven
             silent_count += 1
             log("DEBUG", f"Muziek gedetecteerd ({silent_count}/{required_changes})...")
             if silent_count >= required_changes:
@@ -74,6 +76,7 @@ def wait_for_audio_trigger(check_interval=1):
                 return
         else:
             silent_count = 0
+
         time.sleep(check_interval)
 
 def fetch_discogs_collection():
