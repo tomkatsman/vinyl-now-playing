@@ -39,7 +39,7 @@ def capture_stream(duration=10):
             break
     return buffer
 
-def detect_audio_presence(audio_bytes, baseline_energy, threshold_factor=0.999):
+def detect_audio_presence(audio_bytes, baseline_energy, threshold_factor=0.9997):
     """
     Analyseert de frequentie-inhoud van een audiostream om te bepalen of er echt muziek speelt.
     baseline_energy: gemeten basisenergie in stilte
