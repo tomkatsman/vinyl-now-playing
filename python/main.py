@@ -44,6 +44,26 @@ def capture_stream(duration=10):
     log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}")
     return buffer, rms
 
+def measure_silence(threshold=200):
+    """
+    Meet het RMS-volume van de stream en kijkt of de data écht stil is.
+    Geeft een waarschuwing als de stream constant volume heeft terwijl er geen geluid te horen is.
+    """
+    log("INFO", "Meten van het volume om te controleren of de stream echt stil is...")
+
+    rms_values = []
+    for _ in range(5):
+        _, rms = capture_stream(1)
+        rms_values.append(rms)
+        log("DEBUG", f"Gemeten RMS: {rms}")
+
+    avg_rms = sum(rms_values) / len(rms_values)
+
+    if avg_rms > threshold:
+        log("WARNING", f"RMS blijft hoog ({avg_rms}), maar je hoort niets! Mogelijk kunstmatige ruis in de stream.")
+    else:
+        log("INFO", f"RMS lijkt laag ({avg_rms}). De stream is waarschijnlijk echt stil.")
+
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
     signature_string = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
@@ -157,6 +177,7 @@ def wait_for_audio_trigger(check_interval=1):
 collection = fetch_discogs_collection()
 
 while True:
+    measure_silence()
     wait_for_audio_trigger()  # Wachten tot een plaat wordt opgezet
     time.sleep(2)  # Wachten voordat audio wordt opgenomen
 
