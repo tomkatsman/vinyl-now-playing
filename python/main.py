@@ -91,14 +91,28 @@ def extract_metadata(result):
     # Verschuif alles één minuut naar voren om vertraging te compenseren.
     play_offset_ms = max(play_offset_ms + 30000, 0)
 
+    # Decodeer Unicode-escape-karakters correct
+    def decode_unicode(value):
+        if isinstance(value, str):
+            try:
+                return value.encode('utf-8').decode('unicode_escape')
+            except UnicodeDecodeError:
+                return value  # Als er een fout optreedt, gebruik de originele waarde
+        return value
+
+    title = decode_unicode(music.get('title', 'Unknown'))
+    artist = decode_unicode(music['artists'][0]['name']) if music.get('artists') else "Unknown Artist"
+    album = decode_unicode(music['album'].get('name', 'Unknown Album')) if music.get('album') else "Unknown Album"
+
     return (
-        clean_title(music.get('title', 'Unknown')),
-        music['artists'][0]['name'] if music.get('artists') else "Unknown Artist",
-        clean_title(music['album'].get('name', 'Unknown Album') if music.get('album') else "Unknown Album"),
+        clean_title(title),
+        artist,
+        clean_title(album),
         play_offset_ms,
         music.get('duration_ms', 0),
         source
     )
+
 
 def fetch_discogs_collection():
     releases, page = [], 1
