@@ -6,8 +6,8 @@ import base64
 import hashlib
 import hmac
 import re
+import audioop
 import warnings
-import numpy as np
 from difflib import SequenceMatcher
 from datetime import datetime
 
@@ -21,6 +21,9 @@ DISCOGS_USERNAME = "tomkatsman"
 DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
+
+volume_threshold = 100
+trigger_increase_factor = 1.5
 
 # Helper functies
 def log(level, message):
@@ -37,87 +40,9 @@ def capture_stream(duration=10):
         buffer.extend(chunk)
         if len(buffer) >= 44100 * 2 * duration:
             break
-    return buffer
-
-def detect_audio_presence(audio_bytes, baseline_energy, threshold_factor=0.9997):
-    """
-    Analyseert de frequentie-inhoud van een audiostream om te bepalen of er echt muziek speelt.
-    baseline_energy: gemeten basisenergie in stilte
-    threshold_factor: percentage van de baseline waarbij muziek wordt herkend (lager dan baseline)
-    """
-    audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
-    if len(audio_np) == 0:
-        log("WARNING", "Gelezen audiobuffer is leeg!")
-        return False
-
-    energy = np.sum(np.abs(audio_np))
-
-    # Bereken de nieuwe drempel op basis van de baseline
-    threshold = baseline_energy * threshold_factor
-
-    log("DEBUG", f"Audio-energie: {energy}, Drempel: {threshold} (Baseline: {baseline_energy})")
-
-    return energy < threshold  # Muziek wordt herkend als de energie onder de drempel komt
-
-def measure_baseline_energy(samples=5, interval=1):
-    """
-    Meet het gemiddelde energie-niveau van de stream in een stil moment.
-    Dit helpt om een betere drempel te bepalen.
-    """
-    log("INFO", "Meten van basisenergie om stille stream te bepalen...")
-    energies = []
-
-    for _ in range(samples):
-        audio = capture_stream(interval)
-        audio_np = np.frombuffer(audio, dtype=np.int16)
-        if len(audio_np) == 0:
-            log("WARNING", "Gelezen audiobuffer is leeg!")
-            continue
-        energies.append(np.sum(np.abs(audio_np)))
-
-    if not energies:
-        log("WARNING", "Kon geen basisenergie meten, standaardwaarde gebruiken.")
-        return 1e9  # Hoge standaardwaarde om foute detecties te vermijden
-
-    baseline = sum(energies) / len(energies)
-    log("INFO", f"Gemiddeld basisenergie: {baseline}")
-    return baseline
-
-def wait_for_audio_trigger(check_interval=1):
-    baseline_energy = measure_baseline_energy()  # Meet de ruis voor de threshold
-
-    log("INFO", "Wachten op hoorbare muziek in de stream...")
-    silent_count = 0
-    required_changes = 3
-
-    while True:
-        audio = capture_stream(check_interval)
-        if detect_audio_presence(audio, baseline_energy):  # baseline_energy wordt hier doorgegeven
-            silent_count += 1
-            log("DEBUG", f"Muziek gedetecteerd ({silent_count}/{required_changes})...")
-            if silent_count >= required_changes:
-                log("INFO", "Muziek bevestigd! Trigger geactiveerd.")
-                return
-        else:
-            silent_count = 0
-
-        time.sleep(check_interval)
-
-def fetch_discogs_collection():
-    releases, page = [], 1
-    while True:
-        response = requests.get(f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases", 
-                                headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}, 
-                                params={"page": page, "per_page": 100})
-        if response.status_code != 200: 
-            break
-        page_data = response.json().get("releases", [])
-        releases.extend(page_data)
-        if len(page_data) < 100: 
-            break
-        page += 1
-    log("INFO", f"Fetched {len(releases)} releases from Discogs.")
-    return releases
+    rms = audioop.rms(buffer, 2)
+    log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}")
+    return buffer, rms
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -145,14 +70,38 @@ def extract_metadata(result):
         return "Unknown", "Unknown", "Unknown", 0, 0, "none"
 
     music = music_list[0]
+    play_offset_ms = max(music.get('play_offset_ms', 0) + 30000, 0)
+
     return (
         clean_title(music.get('title', 'Unknown')),
         music['artists'][0]['name'] if music.get('artists') else "Unknown Artist",
         clean_title(music['album'].get('name', 'Unknown Album') if music.get('album') else "Unknown Album"),
-        max(music.get('play_offset_ms', 0) + 30000, 0),
+        play_offset_ms,
         music.get('duration_ms', 0),
         "music"
     )
+
+def fetch_discogs_collection():
+    releases, page = [], 1
+    while True:
+        response = requests.get(f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}, params={"page": page, "per_page": 100})
+        if response.status_code != 200: break
+        page_data = response.json().get("releases", [])
+        releases.extend(page_data)
+        if len(page_data) < 100: break
+        page += 1
+    log("INFO", f"Fetched {len(releases)} releases from Discogs.")
+    return releases
+
+def find_album_and_tracklist(artist, album, collection, track_title):
+    matched_releases = [r for r in collection if artist.lower() in r['basic_information']['artists'][0]['name'].lower()]
+    for release in matched_releases:
+        release_id = release['id']
+        details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
+        for track in details.get('tracklist', []):
+            if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(track_title).lower()).ratio() > 0.7:
+                return details
+    return None
 
 def find_track_index(title, tracklist):
     for index, track in enumerate(tracklist):
@@ -165,38 +114,32 @@ def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source
         json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
     log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
+def wait_for_audio_trigger(check_interval=1):
+    log("INFO", "Wachten op audio-trigger (volume-toename)...")
+    previous_rms = 0
+
+    while True:
+        _, rms = capture_stream(check_interval)
+        if previous_rms > 0 and rms > previous_rms * trigger_increase_factor and rms > volume_threshold:
+            log("INFO", f"Volume-toename gedetecteerd (RMS: {previous_rms} -> {rms}). Trigger geactiveerd.")
+            return
+        previous_rms = rms
+
 collection = fetch_discogs_collection()
 
 while True:
     wait_for_audio_trigger()
     time.sleep(2)
-
-    audio = capture_stream(10)
+    audio, _ = capture_stream(10)
     result = recognize_audio(audio)
     title, artist, album, offset, duration, source = extract_metadata(result)
 
     if title == "Unknown":
-        log("WARNING", "Geen herkenbare muziek gevonden, terug naar wachten op trigger.")
         continue
 
-    album_data = next((r for r in collection if album.lower() in r['basic_information']['title'].lower()), None)
-
+    album_data = find_album_and_tracklist(artist, album, collection, title)
     if album_data:
         track_index = find_track_index(title, album_data['tracklist'])
         update_now_playing(title, artist, album_data['images'][0]['uri'], offset, duration, source)
-        for current_track_index in range(track_index, len(album_data['tracklist'])):
-            track = album_data['tracklist'][current_track_index]
-            title = clean_title(track['title'])
-            duration_parts = track['duration'].split(":")
-            duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
-            log("INFO", f"Speelt nu: {title} ({current_track_index+1}/{len(album_data['tracklist'])})")
-            update_now_playing(title, artist, album_data['images'][0]['uri'], 0, duration_ms, source)
-            time.sleep((duration_ms / 1000) - 5)
-            log("INFO", "5 seconden tot volgende track...")
-            time.sleep(5)
-        log("INFO", "Einde van album bereikt, terug naar luistermodus.")
     else:
-        log("WARNING", f"'{title}' niet in collectie gevonden, toont zonder album.")
         update_now_playing(title, artist, None, offset, duration, source)
-
-    log("INFO", "Terug naar wachten op volume-toename (trigger)...")
