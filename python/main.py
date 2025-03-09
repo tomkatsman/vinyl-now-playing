@@ -129,9 +129,23 @@ def find_track_index(title, tracklist):
     return 0
 
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
+    new_data = {
+        "title": title,
+        "artist": artist,
+        "cover": cover,
+        "play_offset_ms": play_offset_ms,
+        "duration_ms": duration_ms,
+        "source": source
+    }
+
+    # Dwing het verwijderen van het oude bestand af zodat wijzigingen altijd worden doorgevoerd
+    if os.path.exists(NOW_PLAYING_PATH):
+        os.remove(NOW_PLAYING_PATH)  # Verwijder het oude bestand
+
     with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
-    log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
+        json.dump(new_data, f)
+
+    log("INFO", f"Now playing JSON geüpdatet: {title}")
 
 def show_current_track(play_offset_ms=0, duration_ms=0):
     global current_track_duration
