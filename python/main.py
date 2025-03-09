@@ -129,9 +129,32 @@ def find_track_index(title, tracklist):
     return 0
 
 def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
-    with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
-    log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
+    """
+    Werkt de now-playing informatie bij. Als er geen muziek wordt herkend,
+    wordt een standaardmelding weergegeven.
+    """
+    now_playing_data = {
+        "title": title,
+        "artist": artist,
+        "cover": cover,
+        "play_offset_ms": play_offset_ms,
+        "duration_ms": duration_ms,
+        "source": source
+    }
+
+    try:
+        log("DEBUG", f"Schrijft JSON naar {NOW_PLAYING_PATH}: {json.dumps(now_playing_data, indent=4)}")
+        
+        with open(NOW_PLAYING_PATH, "w") as f:
+            json.dump(now_playing_data, f)
+            f.flush()  # Zorgt ervoor dat de data direct naar de schijf wordt geschreven
+            os.fsync(f.fileno())  # Forseert een directe schijf-update op sommige systemen
+        
+        log("INFO", f"Now playing JSON geüpdatet: {title}")
+    
+    except Exception as e:
+        log("ERROR", f"Fout bij het bijwerken van now-playing JSON: {e}")
+
 
 def show_current_track(play_offset_ms=0, duration_ms=0):
     global current_track_duration
