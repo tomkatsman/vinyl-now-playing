@@ -6,23 +6,35 @@ app = Flask(__name__)
 
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), '../web/now_playing.json')
 
+# Cache voor de laatst bekende track
+last_known_now_playing = None
+
 def load_now_playing():
-    """
-    Probeert 'now_playing.json' in te laden en terug te sturen als JSON.
-    Geeft een lege JSON terug als het bestand ontbreekt of er een fout optreedt.
-    """
+    global last_known_now_playing
     try:
         with open(NOW_PLAYING_PATH, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+
+        # **Forceer update van de cache als de data anders is**
+        if last_known_now_playing != data:
+            last_known_now_playing = data
+            print(f"[INFO] Now Playing JSON is geüpdatet: {data}")
+
+        return last_known_now_playing
+
     except Exception as e:
         print(f"[WARNING] Kon 'now_playing.json' niet lezen: {e}")
-        return {}  # Retourneer een lege JSON bij fout
+        return {
+            "title": "Kies een plaat uit en zet hem aan",
+            "artist": "",
+            "cover": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/Vinyl_record.svg/400px-Vinyl_record.svg.png",
+            "play_offset_ms": 0,
+            "duration_ms": 0,
+            "source": ""
+        }  # **Retourneer standaard JSON als er een fout is**
 
 @app.route('/now-playing')
 def now_playing():
-    """
-    Haalt de huidige 'Now Playing' status op en geeft deze terug als JSON.
-    """
     return jsonify(load_now_playing())
 
 if __name__ == '__main__':
