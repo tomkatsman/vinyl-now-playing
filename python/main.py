@@ -59,6 +59,30 @@ def detect_audio_presence(audio_bytes, baseline_energy, threshold_factor=0.999):
 
     return energy < threshold  # Muziek wordt herkend als de energie onder de drempel komt
 
+def measure_baseline_energy(samples=5, interval=1):
+    """
+    Meet het gemiddelde energie-niveau van de stream in een stil moment.
+    Dit helpt om een betere drempel te bepalen.
+    """
+    log("INFO", "Meten van basisenergie om stille stream te bepalen...")
+    energies = []
+
+    for _ in range(samples):
+        audio = capture_stream(interval)
+        audio_np = np.frombuffer(audio, dtype=np.int16)
+        if len(audio_np) == 0:
+            log("WARNING", "Gelezen audiobuffer is leeg!")
+            continue
+        energies.append(np.sum(np.abs(audio_np)))
+
+    if not energies:
+        log("WARNING", "Kon geen basisenergie meten, standaardwaarde gebruiken.")
+        return 1e9  # Hoge standaardwaarde om foute detecties te vermijden
+
+    baseline = sum(energies) / len(energies)
+    log("INFO", f"Gemiddeld basisenergie: {baseline}")
+    return baseline
+
 def wait_for_audio_trigger(check_interval=1):
     baseline_energy = measure_baseline_energy()  # Meet de ruis voor de threshold
 
