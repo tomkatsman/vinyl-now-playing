@@ -133,6 +133,18 @@ def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source
         json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
     log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
+def update_status(status, code):
+    """
+    Werkt het status.json bestand bij met de huidige status en HTTP-statuscode.
+    """
+    STATUS_PATH = os.path.join(os.path.dirname(__file__), "../web/status.json")
+    try:
+        with open(STATUS_PATH, "w") as f:
+            json.dump({"status": status, "code": code}, f)
+        log("INFO", f"Status geüpdatet: status={status}, code={code}")
+    except Exception as e:
+        log("ERROR", f"Kon status.json niet bijwerken: {e}")
+
 def show_current_track(play_offset_ms=0, duration_ms=0):
     global current_track_duration
     track = current_album['tracklist'][current_track_index]
@@ -177,11 +189,13 @@ while True:
 
     if volume is None:
         log("WARNING", "Kon volume niet meten, wachten en opnieuw proberen.")
+        update_status(False, 503)  # Service niet beschikbaar
         time.sleep(5)
         continue
 
     if volume < -50:  # Als volume lager is dan -50 dB, beschouwen we het als stilte
         log("INFO", "Geen muziek gedetecteerd, bijwerken van now-playing JSON...")
+        update_status(False, 204)  # Geen inhoud
         update_now_playing(
             title="Kies een plaat uit en zet hem aan",
             artist="",
@@ -194,6 +208,7 @@ while True:
         continue
 
     log("INFO", "Muziek gedetecteerd! Start herkenning...")
+    update_status(True, 200)  # OK
 
     audio, rms = capture_stream(10)
     result = recognize_audio(audio)
