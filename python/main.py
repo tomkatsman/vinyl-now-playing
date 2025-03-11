@@ -231,6 +231,7 @@ while True:
                 time.sleep(10)
             else:
                 time.sleep(current_track_duration)
+                
             current_track_index += 1
             if current_track_index >= len(current_album['tracklist']):
                 log("INFO", "End of album reached, resetting to listening mode.")
@@ -238,27 +239,24 @@ while True:
                 break
             else:
                 next_track = current_album['tracklist'][current_track_index]
-                # Haal de duur veilig op uit Discogs, standaard naar een lege string als het ontbreekt
                 duration_str = next_track.get('duration', "").strip()
 
-                # Als Discogs geen geldige duur heeft, gebruik ACRCloud's `duration_ms`
+                # **Als Discogs geen geldige duur heeft, gebruik ACRCloud duration_ms**
                 if not duration_str or not re.match(r"^\d+:\d+$", duration_str):
                     log("WARNING", f"Geen geldige duur in Discogs voor '{next_track.get('title', 'Onbekend')}', fallback naar ACRCloud.")
-                    duration_ms = duration  # Neem de ACRCloud duration_ms over
+                    duration_ms = duration  # **Neem ACRCloud duration_ms over**
                 else:
-                    # Opsplitsen en omzetten naar milliseconden
+                    # **Probeer Discogs tijd om te zetten**
                     try:
-                        duration_parts = duration_str.split(":")
-                        minutes = int(duration_parts[0])
-                        seconds = int(duration_parts[1])
+                        minutes, seconds = map(int, duration_str.split(":"))
                         duration_ms = (minutes * 60 + seconds) * 1000
-                    except (ValueError, IndexError):
+                    except ValueError:
                         log("ERROR", f"Ongeldige duur ontvangen: {duration_str}. Fallback naar ACRCloud.")
-                        duration_ms = duration  # ACRCloud duration_ms als backup
-                        
-                duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
+                        duration_ms = duration  # **Fallback naar ACRCloud**
+
+                # **Laat de track zien met de correcte duration_ms**
                 show_current_track(0, duration_ms)
-                
+
     else:
         log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
         update_now_playing(title, artist, None, offset, duration, source)
