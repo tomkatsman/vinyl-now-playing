@@ -238,7 +238,24 @@ while True:
                 break
             else:
                 next_track = current_album['tracklist'][current_track_index]
-                duration_parts = next_track['duration'].split(":")
+                # Haal de duur veilig op uit Discogs, standaard naar een lege string als het ontbreekt
+                duration_str = next_track.get('duration', "").strip()
+
+                # Als Discogs geen geldige duur heeft, gebruik ACRCloud's `duration_ms`
+                if not duration_str or not re.match(r"^\d+:\d+$", duration_str):
+                    log("WARNING", f"Geen geldige duur in Discogs voor '{next_track.get('title', 'Onbekend')}', fallback naar ACRCloud.")
+                    duration_ms = duration  # Neem de ACRCloud duration_ms over
+                else:
+                    # Opsplitsen en omzetten naar milliseconden
+                    try:
+                        duration_parts = duration_str.split(":")
+                        minutes = int(duration_parts[0])
+                        seconds = int(duration_parts[1])
+                        duration_ms = (minutes * 60 + seconds) * 1000
+                    except (ValueError, IndexError):
+                        log("ERROR", f"Ongeldige duur ontvangen: {duration_str}. Fallback naar ACRCloud.")
+                        duration_ms = duration  # ACRCloud duration_ms als backup
+                        
                 duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
                 show_current_track(0, duration_ms)
                 
