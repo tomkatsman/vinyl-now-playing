@@ -258,7 +258,7 @@ while True:
             else:
                 duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
 
-show_current_track(0, duration_ms)
+        show_current_track(0, duration_ms)
 
                 
     else:
