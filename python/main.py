@@ -247,15 +247,19 @@ while True:
             time.sleep(current_track_duration)
         
         current_track_index += 1
-        if current_track_index >= len(current_album['tracklist']):
-            log("INFO", "End of album reached, resetting to listening mode.")
-            current_album = None
-            break
+        if 'duration' not in next_track or not next_track['duration']:
+            print(f"ERROR: Geen geldige duur gevonden voor track: {next_track}")
+            duration_ms = 0  # Standaardwaarde om een crash te voorkomen
         else:
-            next_track = current_album['tracklist'][current_track_index]
             duration_parts = next_track['duration'].split(":")
-            duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
-            show_current_track(0, duration_ms)
+            if len(duration_parts) != 2 or not duration_parts[0].isdigit() or not duration_parts[1].isdigit():
+                print(f"ERROR: Ongeldige duration_parts: {duration_parts} voor track: {next_track}")
+                duration_ms = 0  # Standaardwaarde om te blijven werken
+            else:
+                duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
+
+show_current_track(0, duration_ms)
+
                 
     else:
         log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
