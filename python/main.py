@@ -224,45 +224,52 @@ while True:
         show_current_track(offset, duration)
 
     while current_track_duration > 0:
-        # Check of het volume onder de drempelwaarde is gezakt
-        volume = get_stream_volume()
-        if volume is not None and volume < -50:
-            log("INFO", "Geen muziek meer gedetecteerd tijdens afspelen, reset naar luistermodus...")
-            update_now_playing(
-                title="Kies een plaat uit en zet hem aan",
-                artist="",
-                cover="https://img.freepik.com/free-vector/vinyl-retro-music-illustration_24877-60144.jpg",
-                play_offset_ms=0,
-                duration_ms=0,
-                source=""
-            )
-            current_album = None
-            break  # Stop de loop en ga terug naar het wachten op een nieuwe plaat
+    # Check of het volume onder de drempelwaarde is gezakt
+    volume = get_stream_volume()
+    if volume is not None and volume < -50:
+        log("INFO", "Geen muziek meer gedetecteerd tijdens afspelen, reset naar luistermodus...")
+        update_now_playing(
+            title="Kies een plaat uit en zet hem aan",
+            artist="",
+            cover="https://img.freepik.com/free-vector/vinyl-retro-music-illustration_24877-60144.jpg",
+            play_offset_ms=0,
+            duration_ms=0,
+            source=""
+        )
+        current_album = None
+        break  # Stop de loop en ga terug naar het wachten op een nieuwe plaat
 
-        if current_track_duration > 10:
-            time.sleep(current_track_duration - 10)
-            log("INFO", "10 seconds until next track...")
-            time.sleep(10)
-        else:
-            time.sleep(current_track_duration)
-        
-        current_track_index += 1
+    # Wacht totdat de track bijna is afgelopen
+    sleep_time = max(0, current_track_duration - 10)
+    if sleep_time > 0:
+        time.sleep(sleep_time)
+    
+    log("INFO", "10 seconds until next track...")
+    time.sleep(min(10, current_track_duration))
+
+    # Ga naar de volgende track
+    current_track_index += 1
+    
+    # Controleer of er een geldig album is en de index nog binnen de tracklist valt
+    if current_album and current_track_index < len(current_album['tracklist']):
+        next_track = current_album['tracklist'][current_track_index]
+
+        # Controleer of er een geldige duur is voor de track
         if 'duration' not in next_track or not next_track['duration']:
-            print(f"ERROR: Geen geldige duur gevonden voor track: {next_track}")
-            duration_ms = 0  # Standaardwaarde om een crash te voorkomen
+            log("ERROR", f"Geen geldige duur gevonden voor track: {next_track}")
+            current_track_duration = 0  # Vermijd een crash door een standaardwaarde te gebruiken
         else:
             duration_parts = next_track['duration'].split(":")
-            if len(duration_parts) != 2 or not duration_parts[0].isdigit() or not duration_parts[1].isdigit():
-                print(f"ERROR: Ongeldige duration_parts: {duration_parts} voor track: {next_track}")
-                duration_ms = 0  # Standaardwaarde om te blijven werken
+            if len(duration_parts) == 2 and duration_parts[0].isdigit() and duration_parts[1].isdigit():
+                current_track_duration = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
             else:
-                duration_ms = (int(duration_parts[0]) * 60 + int(duration_parts[1])) * 1000
+                log("ERROR", f"Ongeldige duration_parts: {duration_parts} voor track: {next_track}")
+                current_track_duration = 0
 
-        show_current_track(0, duration_ms)
-
-                
+        show_current_track(0, current_track_duration)
     else:
-        log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
-        update_now_playing(title, artist, None, offset, duration, source)
+        log("INFO", "Geen volgende track beschikbaar, reset naar luistermodus.")
+        current_album = None
+        break  # Stop de loop en wacht op een nieuw album
 
     time.sleep(1)
