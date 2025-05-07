@@ -128,9 +128,22 @@ def find_track_index(title, tracklist):
             return index
     return 0
 
-def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
+def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source, tracklist=None):
+    data = {
+        "title": title,
+        "artist": artist,
+        "cover": cover,
+        "play_offset_ms": play_offset_ms,
+        "duration_ms": duration_ms,
+        "source": source
+    }
+
+    if tracklist:
+        data["tracklist"] = [clean_title(track["title"]) for track in tracklist]
+
     with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump({"title": title, "artist": artist, "cover": cover, "play_offset_ms": play_offset_ms, "duration_ms": duration_ms, "source": source}, f)
+        json.dump(data, f)
+
     log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
 def update_status(status, code):
@@ -153,7 +166,7 @@ def show_current_track(play_offset_ms=0, duration_ms=0):
     log("INFO", f"Now playing: {current_album['artists'][0]['name']} - {title} (Track {current_track_index+1}/{len(current_album['tracklist'])}, {play_offset_ms//60000:02}:{(play_offset_ms//1000)%60:02})")
     current_track_duration = (duration_ms - play_offset_ms) // 1000
     log("INFO", f"Time until next track: {current_track_duration//60:02}:{current_track_duration%60:02}")
-    update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music")
+    update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music", current_album['tracklist'])
 
 def get_stream_volume():
     """
