@@ -240,32 +240,51 @@ while True:
         current_track_index = find_track_index(title, current_album['tracklist'])
         show_current_track(offset, duration)
 
-        # ⏱️ Start loop die volgende track afwacht via stilte
         while True:
-            low_volume_threshold = -40
-            low_volume_required_seconds = 5
-            check_interval = 1
-            low_volume_seconds = 0
+            # ⏱️ 1. Wacht op stilte van minstens 5 seconden
+            low_volume_threshold = -50
+            required_silence_duration = 5
+            silence_start_time = None
+
+            log("INFO", "Wachten op stilte tussen nummers...")
 
             while True:
                 volume = get_stream_volume()
                 if volume is None:
-                    log("WARNING", "Kon volume niet meten tijdens track monitoring.")
-                    time.sleep(check_interval)
+                    log("WARNING", "Kon volume niet meten tijdens stilte-detectie.")
+                    time.sleep(1)
                     continue
 
                 if volume < low_volume_threshold:
-                    low_volume_seconds += check_interval
-                    log("DEBUG", f"Volume onder drempel: {volume} dBFS ({low_volume_seconds}/{low_volume_required_seconds}s)")
+                    if silence_start_time is None:
+                        silence_start_time = time.time()
+                        log("DEBUG", f"Stilte begonnen bij {volume} dBFS")
+                    elif time.time() - silence_start_time >= required_silence_duration:
+                        log("INFO", f"Stilte gedetecteerd gedurende minimaal {required_silence_duration} seconden.")
+                        break
                 else:
-                    low_volume_seconds = 0
+                    if silence_start_time is not None:
+                        log("DEBUG", f"Volume weer omhoog gekomen vóór de stilte lang genoeg was: {volume} dBFS")
+                    silence_start_time = None
 
-                if low_volume_seconds >= low_volume_required_seconds:
-                    log("INFO", "Stilte gedetecteerd — volgende track wordt gestart.")
+                time.sleep(1)
+
+            # ⏱️ 2. Wacht op volumeherstel ná stilte
+            log("INFO", "Stilte bevestigd. Wachten op start van volgende track (volumeherstel)...")
+
+            while True:
+                volume = get_stream_volume()
+                if volume is None:
+                    time.sleep(1)
+                    continue
+
+                if volume > low_volume_threshold:
+                    log("INFO", f"Volumeherstel gedetecteerd: {volume} dBFS. Start volgende track.")
                     break
 
-                time.sleep(check_interval)
+                time.sleep(1)
 
+            # ➡️ Ga naar de volgende track
             current_track_index += 1
             if current_track_index >= len(current_album['tracklist']):
                 log("INFO", "Einde van album bereikt, reset naar luistermodus.")
@@ -285,7 +304,6 @@ while True:
                 except ValueError:
                     duration_ms = duration
 
-            # ⏱️ Update nu met nieuwe track
             show_current_track(0, duration_ms)
 
     else:
