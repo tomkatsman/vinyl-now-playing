@@ -12,11 +12,8 @@ import warnings
 from difflib import SequenceMatcher
 from datetime import datetime
 import subprocess
-import sys
-import math
-
-# Ensure stdout handles UTF-8 properly
-sys.stdout.reconfigure(encoding='utf-8')
+import re
+import time
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -29,26 +26,20 @@ DISCOGS_TOKEN = "SxMnoBAJYKjqsqIZPlQuMitpZDRFEbvYVHkhXmxG"
 ICECAST_URL = "http://localhost:8000/vinyl.mp3"
 NOW_PLAYING_PATH = os.path.join(os.path.dirname(__file__), "../web/now_playing.json")
 
+silence_threshold = 100
+silence_required_for_reset = 30
 current_album = None
 current_track_index = 0
 current_track_duration = 0
-
+force_initial_recognition = True
+silence_duration = 0
 
 def log(level, message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{level}] {timestamp} {message}")
 
-
-def rms_to_dbfs(rms, sample_width=2):
-    if rms == 0:
-        return -float('inf')
-    max_val = float(2 ** (8 * sample_width - 1))
-    return 20 * math.log10(rms / max_val)
-
-
 def clean_title(title):
     return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|\bLive\b|Edition|Official Video|\d{4})", "", title).strip()
-
 
 def capture_stream(duration=10):
     response = requests.get(ICECAST_URL, stream=True)
@@ -58,10 +49,8 @@ def capture_stream(duration=10):
         if len(buffer) >= 44100 * 2 * duration:
             break
     rms = audioop.rms(buffer, 2)
-    dbfs = rms_to_dbfs(rms)
-    log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}, dBFS: {dbfs:.2f}")
-    return buffer, dbfs
-
+    log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}")
+    return buffer, rms
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -77,9 +66,8 @@ def recognize_audio(audio_bytes):
         'signature_version': '1'
     })
     result = response.json()
-    log("DEBUG", json.dumps(result, indent=4, ensure_ascii=False))
+    log("DEBUG", json.dumps(result, indent=4))
     return result
-
 
 def extract_metadata(result):
     metadata = result.get('metadata', {})
@@ -97,14 +85,14 @@ def extract_metadata(result):
         return "Unknown", "Unknown", "Unknown", 0, 0, "none"
 
     music = music_list[0]
-    raw_title = music.get('title', 'Unknown')
-    log("DEBUG", f"Raw title from ACRCloud: {raw_title}")
 
     play_offset_ms = music.get('play_offset_ms', 0)
+    
+    # Verschuif alles één minuut naar voren om vertraging te compenseren.
     play_offset_ms = max(play_offset_ms + 30000, 0)
 
     return (
-        clean_title(raw_title),
+        clean_title(music.get('title', 'Unknown')),
         music['artists'][0]['name'] if music.get('artists') else "Unknown Artist",
         clean_title(music['album'].get('name', 'Unknown Album') if music.get('album') else "Unknown Album"),
         play_offset_ms,
@@ -112,8 +100,35 @@ def extract_metadata(result):
         source
     )
 
+def fetch_discogs_collection():
+    releases, page = [], 1
+    while True:
+        response = requests.get(f"https://api.discogs.com/users/{DISCOGS_USERNAME}/collection/folders/0/releases", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}, params={"page": page, "per_page": 100})
+        if response.status_code != 200: break
+        page_data = response.json().get("releases", [])
+        releases.extend(page_data)
+        if len(page_data) < 100: break
+        page += 1
+    log("INFO", f"Fetched {len(releases)} releases from Discogs.")
+    return releases
 
-def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source):
+def find_album_and_tracklist(artist, album, collection, track_title):
+    matched_releases = [release for release in collection if artist.lower() in release['basic_information']['artists'][0]['name'].lower()]
+    for release in matched_releases:
+        release_id = release['id']
+        details = requests.get(f"https://api.discogs.com/releases/{release_id}", headers={"Authorization": f"Discogs token={DISCOGS_TOKEN}"}).json()
+        for track in details.get('tracklist', []):
+            if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(track_title).lower()).ratio() > 0.7:
+                return details
+    return None
+
+def find_track_index(title, tracklist):
+    for index, track in enumerate(tracklist):
+        if SequenceMatcher(None, clean_title(track['title']).lower(), clean_title(title).lower()).ratio() > 0.7:
+            return index
+    return 0
+
+def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source, tracklist=None):
     data = {
         "title": title,
         "artist": artist,
@@ -122,31 +137,102 @@ def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source
         "duration_ms": duration_ms,
         "source": source
     }
-    with open(NOW_PLAYING_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+
+    if tracklist:
+        data["tracklist"] = [
+            {
+                "position": track.get("position", ""),
+                "title": clean_title(track.get("title", ""))
+            }
+            for track in tracklist
+            if "title" in track and "position" in track
+        ]
+
+    with open(NOW_PLAYING_PATH, "w") as f:
+        json.dump(data, f)
+
     log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
+def update_status(status, code):
+    """
+    Werkt het status.json bestand bij met de huidige status en HTTP-statuscode.
+    """
+    STATUS_PATH = os.path.join(os.path.dirname(__file__), "../web/status.json")
+    try:
+        with open(STATUS_PATH, "w") as f:
+            json.dump({"status": status, "code": code}, f)
+        log("INFO", f"Status geüpdatet: status={status}, code={code}")
+    except Exception as e:
+        log("ERROR", f"Kon status.json niet bijwerken: {e}")
+
+def show_current_track(play_offset_ms=0, duration_ms=0):
+    global current_track_duration
+    track = current_album['tracklist'][current_track_index]
+    title = clean_title(track['title'])
+    cover = current_album.get('images', [{}])[0].get('uri', '')
+    log("INFO", f"Now playing: {current_album['artists'][0]['name']} - {title} (Track {current_track_index+1}/{len(current_album['tracklist'])}, {play_offset_ms//60000:02}:{(play_offset_ms//1000)%60:02})")
+    current_track_duration = (duration_ms - play_offset_ms) // 1000
+    log("INFO", f"Time until next track: {current_track_duration//60:02}:{current_track_duration%60:02}")
+    update_now_playing(title, current_album['artists'][0]['name'], cover, play_offset_ms, duration_ms, "music", current_album['tracklist'])
 
 def get_stream_volume():
+    """
+    Meet het gemiddelde volume van de Icecast-stream met FFmpeg.
+    Retourneert het volume in dBFS (Decibels Full Scale).
+    """
     try:
-        cmd = ["ffmpeg", "-i", ICECAST_URL, "-t", "2", "-af", "volumedetect", "-f", "null", "-"]
+        cmd = [
+            "ffmpeg", "-i", ICECAST_URL, "-t", "2", "-af", "volumedetect", "-f", "null", "-"
+        ]
         result = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
+
+        # Zoek naar het gemeten volume in de uitvoer
         volume_lines = [line for line in result.stderr.split("\n") if "mean_volume" in line]
         if not volume_lines:
+            print("[WARNING] Kon geen volume meten met FFmpeg.")
             return None
+
+        # Extract volume value
         mean_volume = float(re.search(r"mean_volume: ([\-\d\.]+) dB", volume_lines[0]).group(1))
+        print(f"[DEBUG] Gemeten volume: {mean_volume} dBFS")
         return mean_volume
     except Exception as e:
-        log("ERROR", f"Fout bij volume meten: {e}")
+        print(f"[ERROR] Fout bij het meten van volume: {e}")
         return None
 
+# Simpel testscript dat elke 5 seconden het volume meet
 
-# --- MAIN LOOP ---
+collection = fetch_discogs_collection()
 
-log("INFO", "Vinyl recognizer gestart.")
+was_silent = False  # Houd bij of we net stilte hadden
 
 while True:
-    audio, baseline_volume_dbfs = capture_stream(10)
+    volume = get_stream_volume()
+
+    if volume is None:
+        log("WARNING", "Kon volume niet meten, wachten en opnieuw proberen.")
+        update_status(False, 503)
+        time.sleep(5)
+        continue
+
+    if volume < -50:
+        if not was_silent:
+            log("INFO", "Stilte gedetecteerd. Wacht op nieuwe track...")
+            was_silent = True
+        update_status(False, 204)
+        time.sleep(2)
+        continue
+
+    if was_silent:
+        log("INFO", "Volumeherstel na stilte — nieuwe track vermoedelijk gestart.")
+        was_silent = False
+    else:
+        log("DEBUG", "Volume stabiel boven drempel.")
+
+    # Eerste herkenning
+    update_status(True, 200)
+    log("INFO", "Start herkenning via ACRCloud...")
+    audio, rms = capture_stream(10)
     result = recognize_audio(audio)
     title, artist, album, offset, duration, source = extract_metadata(result)
 
@@ -154,40 +240,83 @@ while True:
         time.sleep(5)
         continue
 
-    update_now_playing(title, artist, None, offset, duration, source)
-    log("INFO", f"Time until next track: {duration//60000:02}:{(duration//1000)%60:02}")
+    album_data = find_album_and_tracklist(artist, album, collection, title)
 
-    duration_seconds = duration // 1000
-    track_end_time = time.time() + duration_seconds
-    silence_threshold = baseline_volume_dbfs - 14
-    silence_seconds = 0
+    if album_data:
+        ...
+        current_album = album_data
+        current_track_index = find_track_index(title, current_album['tracklist'])
+        last_side = None  # Nieuw toegevoegd voor kant-detectie
+        show_current_track(offset, duration)
 
-    log("INFO", f"Stilte drempel ingesteld op {silence_threshold:.2f} dBFS (baseline: {baseline_volume_dbfs:.2f})")
+        while True:
+            low_volume_threshold = -30
+            log("INFO", "Monitoren op stilte + volumeherstel...")
 
-    while True:
-        current_volume = get_stream_volume()
+            # 1. Wacht tot volume onder drempel komt
+            while True:
+                volume = get_stream_volume()
+                if volume is None:
+                    time.sleep(1)
+                    continue
 
-        if current_volume is None:
-            log("DEBUG", "Geen volume gemeten.")
-            time.sleep(1)
-            continue
+                if volume < low_volume_threshold:
+                    log("INFO", f"Stilte gedetecteerd: {volume} dBFS. Wacht op start volgende track...")
+                    break
+                else:
+                    log("DEBUG", f"Nog geen stilte. Volume is {volume} dBFS.")
+                time.sleep(1)
 
-        log("DEBUG", f"Gemeten volume: {current_volume:.1f} dBFS")
-        if current_volume < silence_threshold:
-            silence_seconds += 1
-            log("DEBUG", f"Stilte gedetecteerd ({silence_seconds}s onder drempel)")
-        else:
-            silence_seconds = 0
+            # 2. Wacht tot volume weer boven drempel komt
+            while True:
+                volume = get_stream_volume()
+                if volume is None:
+                    time.sleep(1)
+                    continue
 
-        if silence_seconds >= 5:
-            log("INFO", f"Vroegtijdige trackwissel na {silence_seconds}s stilte.")
-            break
+                if volume > low_volume_threshold:
+                    log("INFO", f"Volumeherstel gedetecteerd: {volume} dBFS. Start volgende track.")
+                    break
+                else:
+                    log("DEBUG", f"Wachten op volumeherstel... huidig volume: {volume} dBFS")
+                time.sleep(1)
 
-        if time.time() >= track_end_time:
-            log("INFO", f"Tijd verlopen ({duration_seconds}s), wissel naar volgende track.")
-            break
+            # Volgende tracklogica
+            current_track_index += 1
+            if current_track_index >= len(current_album['tracklist']):
+                log("INFO", "Einde van album bereikt. Wacht 5 seconden voor nieuwe herkenning...")
+                current_album = None
+                time.sleep(5)
+                break
 
-        time.sleep(1)
+            next_track = current_album['tracklist'][current_track_index]
+            duration_str = next_track.get('duration', "").strip()
 
-    log("INFO", f"Wachten op herkenning volgende track...")
+            # KANT-DETECTIE
+            position = next_track.get('position', '').strip()
+            side_match = re.match(r"([A-Z])", position)
+            current_side = side_match.group(1) if side_match else None
+
+            if last_side and current_side and current_side != last_side:
+                log("INFO", f"Nieuwe kant gedetecteerd: {last_side} → {current_side}. Pauzeer 5 seconden...")
+                time.sleep(5)
+
+            last_side = current_side  # Update de kant
+
+            if not duration_str or not re.match(r"^\d+:\d+$", duration_str):
+                log("WARNING", f"Geen geldige duur in Discogs voor '{next_track.get('title', 'Onbekend')}', fallback naar vorige waarde.")
+                duration_ms = duration
+            else:
+                try:
+                    minutes, seconds = map(int, duration_str.split(":"))
+                    duration_ms = (minutes * 60 + seconds) * 1000
+                except ValueError:
+                    duration_ms = duration
+
+            show_current_track(0, duration_ms)
+
+    else:
+        log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
+        update_now_playing(title, artist, None, offset, duration, source)
+
     time.sleep(1)
