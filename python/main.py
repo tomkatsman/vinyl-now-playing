@@ -243,7 +243,6 @@ while True:
     album_data = find_album_and_tracklist(artist, album, collection, title)
 
     if album_data:
-        ...
         current_album = album_data
         current_track_index = find_track_index(title, current_album['tracklist'])
         last_side = None  # Nieuw toegevoegd voor kant-detectie
@@ -314,9 +313,3 @@ while True:
                     duration_ms = duration
 
             show_current_track(0, duration_ms)
-
-    else:
-        log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
-        update_now_playing(title, artist, None, offset, duration, source)
-
-    time.sleep(1)
