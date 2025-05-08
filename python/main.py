@@ -197,37 +197,40 @@ def get_stream_volume():
 
 collection = fetch_discogs_collection()
 
+was_silent = False  # Houd bij of we net stilte hadden
+
 while True:
     volume = get_stream_volume()
 
     if volume is None:
         log("WARNING", "Kon volume niet meten, wachten en opnieuw proberen.")
-        update_status(False, 503)  # Service niet beschikbaar
+        update_status(False, 503)
         time.sleep(5)
         continue
 
-    if volume < -50:  # Als volume lager is dan -50 dB, beschouwen we het als stilte
-        log("INFO", "Geen muziek gedetecteerd, bijwerken van now-playing JSON...")
-        update_status(False, 204)  # Geen inhoud
-        update_now_playing(
-            title="Kies een plaat uit en zet hem aan",
-            artist="",
-            cover="https://img.freepik.com/free-vector/vinyl-retro-music-illustration_24877-60144.jpg",
-            play_offset_ms=0,
-            duration_ms=0,
-            source=""
-        )
-        time.sleep(5)
+    if volume < -50:
+        if not was_silent:
+            log("INFO", "Stilte gedetecteerd. Wacht op nieuwe track...")
+            was_silent = True
+        update_status(False, 204)
+        time.sleep(2)
         continue
 
-    log("INFO", "Muziek gedetecteerd! Start herkenning...")
-    update_status(True, 200)  # OK
+    if was_silent:
+        log("INFO", "Volumeherstel na stilte — nieuwe track vermoedelijk gestart.")
+        was_silent = False
+    else:
+        log("DEBUG", "Volume stabiel boven drempel.")
 
+    # Eerste herkenning
+    update_status(True, 200)
+    log("INFO", "Start herkenning via ACRCloud...")
     audio, rms = capture_stream(10)
     result = recognize_audio(audio)
     title, artist, album, offset, duration, source = extract_metadata(result)
 
     if title == "Unknown":
+        time.sleep(5)
         continue
 
     album_data = find_album_and_tracklist(artist, album, collection, title)
@@ -237,38 +240,53 @@ while True:
         current_track_index = find_track_index(title, current_album['tracklist'])
         show_current_track(offset, duration)
 
-        while current_track_duration > 0:
-            if current_track_duration > 10:
-                time.sleep(current_track_duration - 10)
-                log("INFO", "10 seconds until next track...")
-                time.sleep(10)
-            else:
-                time.sleep(current_track_duration)
-                
+        # ⏱️ Start loop die volgende track afwacht via stilte
+        while True:
+            low_volume_threshold = -50
+            low_volume_required_seconds = 5
+            check_interval = 1
+            low_volume_seconds = 0
+
+            while True:
+                volume = get_stream_volume()
+                if volume is None:
+                    log("WARNING", "Kon volume niet meten tijdens track monitoring.")
+                    time.sleep(check_interval)
+                    continue
+
+                if volume < low_volume_threshold:
+                    low_volume_seconds += check_interval
+                    log("DEBUG", f"Volume onder drempel: {volume} dBFS ({low_volume_seconds}/{low_volume_required_seconds}s)")
+                else:
+                    low_volume_seconds = 0
+
+                if low_volume_seconds >= low_volume_required_seconds:
+                    log("INFO", "Stilte gedetecteerd — volgende track wordt gestart.")
+                    break
+
+                time.sleep(check_interval)
+
             current_track_index += 1
             if current_track_index >= len(current_album['tracklist']):
-                log("INFO", "End of album reached, resetting to listening mode.")
+                log("INFO", "Einde van album bereikt, reset naar luistermodus.")
                 current_album = None
                 break
+
+            next_track = current_album['tracklist'][current_track_index]
+            duration_str = next_track.get('duration', "").strip()
+
+            if not duration_str or not re.match(r"^\d+:\d+$", duration_str):
+                log("WARNING", f"Geen geldige duur in Discogs voor '{next_track.get('title', 'Onbekend')}', fallback naar vorige waarde.")
+                duration_ms = duration
             else:
-                next_track = current_album['tracklist'][current_track_index]
-                duration_str = next_track.get('duration', "").strip()
+                try:
+                    minutes, seconds = map(int, duration_str.split(":"))
+                    duration_ms = (minutes * 60 + seconds) * 1000
+                except ValueError:
+                    duration_ms = duration
 
-                # **Als Discogs geen geldige duur heeft, gebruik ACRCloud duration_ms**
-                if not duration_str or not re.match(r"^\d+:\d+$", duration_str):
-                    log("WARNING", f"Geen geldige duur in Discogs voor '{next_track.get('title', 'Onbekend')}', fallback naar ACRCloud.")
-                    duration_ms = duration  # **Neem ACRCloud duration_ms over**
-                else:
-                    # **Probeer Discogs tijd om te zetten**
-                    try:
-                        minutes, seconds = map(int, duration_str.split(":"))
-                        duration_ms = (minutes * 60 + seconds) * 1000
-                    except ValueError:
-                        log("ERROR", f"Ongeldige duur ontvangen: {duration_str}. Fallback naar ACRCloud.")
-                        duration_ms = duration  # **Fallback naar ACRCloud**
-
-                # **Laat de track zien met de correcte duration_ms**
-                show_current_track(0, duration_ms)
+            # ⏱️ Update nu met nieuwe track
+            show_current_track(0, duration_ms)
 
     else:
         log("WARNING", f"Track '{title}' by '{artist}' not found in collection, displaying without album.")
