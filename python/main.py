@@ -12,8 +12,10 @@ import warnings
 from difflib import SequenceMatcher
 from datetime import datetime
 import subprocess
-import re
-import time
+import sys
+
+# Ensure stdout handles UTF-8 properly
+sys.stdout.reconfigure(encoding='utf-8')
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -34,6 +36,13 @@ current_track_duration = 0
 force_initial_recognition = True
 silence_duration = 0
 
+def rms_to_dbfs(rms, sample_width=2):
+    import math
+    if rms == 0:
+        return -float('inf')
+    max_val = float(2 ** (8 * sample_width - 1))
+    return 20 * math.log10(rms / max_val)
+
 def log(level, message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{level}] {timestamp} {message}")
@@ -49,8 +58,9 @@ def capture_stream(duration=10):
         if len(buffer) >= 44100 * 2 * duration:
             break
     rms = audioop.rms(buffer, 2)
-    log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}")
-    return buffer, rms
+    dbfs = rms_to_dbfs(rms)
+    log("DEBUG", f"Captured {len(buffer)} bytes, RMS volume: {rms}, dBFS: {dbfs:.2f}")
+    return buffer, dbfs
 
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
@@ -66,7 +76,7 @@ def recognize_audio(audio_bytes):
         'signature_version': '1'
     })
     result = response.json()
-    log("DEBUG", json.dumps(result, indent=4))
+    log("DEBUG", json.dumps(result, indent=4, ensure_ascii=False))
     return result
 
 def extract_metadata(result):
@@ -85,14 +95,14 @@ def extract_metadata(result):
         return "Unknown", "Unknown", "Unknown", 0, 0, "none"
 
     music = music_list[0]
+    raw_title = music.get('title', 'Unknown')
+    print("[DEBUG] Raw title from ACRCloud:", raw_title)  # Optional debug print
 
     play_offset_ms = music.get('play_offset_ms', 0)
-    
-    # Verschuif alles één minuut naar voren om vertraging te compenseren.
     play_offset_ms = max(play_offset_ms + 30000, 0)
 
     return (
-        clean_title(music.get('title', 'Unknown')),
+        clean_title(raw_title),
         music['artists'][0]['name'] if music.get('artists') else "Unknown Artist",
         clean_title(music['album'].get('name', 'Unknown Album') if music.get('album') else "Unknown Album"),
         play_offset_ms,
@@ -148,19 +158,16 @@ def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source
             if "title" in track and "position" in track
         ]
 
-    with open(NOW_PLAYING_PATH, "w") as f:
-        json.dump(data, f)
+    with open(NOW_PLAYING_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
 
     log("INFO", f"Now playing: {artist} - {title} (Source: {source})")
 
 def update_status(status, code):
-    """
-    Werkt het status.json bestand bij met de huidige status en HTTP-statuscode.
-    """
     STATUS_PATH = os.path.join(os.path.dirname(__file__), "../web/status.json")
     try:
-        with open(STATUS_PATH, "w") as f:
-            json.dump({"status": status, "code": code}, f)
+        with open(STATUS_PATH, "w", encoding="utf-8") as f:
+            json.dump({"status": status, "code": code}, f, ensure_ascii=False)
         log("INFO", f"Status geüpdatet: status={status}, code={code}")
     except Exception as e:
         log("ERROR", f"Kon status.json niet bijwerken: {e}")
@@ -232,8 +239,9 @@ while True:
     # Eerste herkenning
     update_status(True, 200)
     log("INFO", "Start herkenning via ACRCloud...")
-    audio, rms = capture_stream(10)
+    audio, baseline_volume_dbfs = capture_stream(10)
     result = recognize_audio(audio)
+
     title, artist, album, offset, duration, source = extract_metadata(result)
 
     if title == "Unknown":
@@ -243,15 +251,15 @@ while True:
     album_data = find_album_and_tracklist(artist, album, collection, title)
 
     if album_data:
-        ...
         current_album = album_data
         current_track_index = find_track_index(title, current_album['tracklist'])
         last_side = None  # Nieuw toegevoegd voor kant-detectie
         show_current_track(offset, duration)
 
         while True:
-            low_volume_threshold = -30
-            log("INFO", "Monitoren op stilte + volumeherstel...")
+            low_volume_threshold = baseline_volume_dbfs - 10
+            log("INFO", f"Stilte drempel ingesteld op {low_volume_threshold:.2f} dBFS (baseline: {baseline_volume_dbfs:.2f})")
+
 
             # 1. Wacht tot volume onder drempel komt
             while True:
