@@ -248,37 +248,25 @@ while True:
         show_current_track(offset, duration)
 
         while True:
-            # ⏱️ 1. Wacht op stilte van minstens 5 seconden
             low_volume_threshold = -30
-            required_silence_duration = 1
-            silence_start_time = None
 
-            log("INFO", "Wachten op stilte tussen nummers...")
+            log("INFO", "Monitoren op stilte + volumeherstel...")
 
+            # 1. Wacht tot volume onder drempel komt
             while True:
                 volume = get_stream_volume()
                 if volume is None:
-                    log("WARNING", "Kon volume niet meten tijdens stilte-detectie.")
                     time.sleep(1)
                     continue
 
                 if volume < low_volume_threshold:
-                    if silence_start_time is None:
-                        silence_start_time = time.time()
-                        log("DEBUG", f"Stilte begonnen bij {volume} dBFS")
-                    elif time.time() - silence_start_time >= required_silence_duration:
-                        log("INFO", f"Stilte gedetecteerd gedurende minimaal {required_silence_duration} seconden.")
-                        break
+                    log("INFO", f"Stilte gedetecteerd: {volume} dBFS. Wacht op start volgende track...")
+                    break
                 else:
-                    if silence_start_time is not None:
-                        log("DEBUG", f"Volume weer omhoog gekomen vóór de stilte lang genoeg was: {volume} dBFS")
-                    silence_start_time = None
-
+                    log("DEBUG", f"Nog geen stilte. Volume is {volume} dBFS.")
                 time.sleep(1)
 
-            # ⏱️ 2. Wacht op volumeherstel ná stilte
-            log("INFO", "Stilte bevestigd. Wachten op start van volgende track (volumeherstel)...")
-
+            # 2. Wacht tot volume weer boven drempel komt
             while True:
                 volume = get_stream_volume()
                 if volume is None:
@@ -288,7 +276,8 @@ while True:
                 if volume > low_volume_threshold:
                     log("INFO", f"Volumeherstel gedetecteerd: {volume} dBFS. Start volgende track.")
                     break
-
+                else:
+                    log("DEBUG", f"Wachten op volumeherstel... huidig volume: {volume} dBFS")
                 time.sleep(1)
 
             # ➡️ Ga naar de volgende track
