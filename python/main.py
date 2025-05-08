@@ -243,7 +243,7 @@ while True:
         while True:
             # ⏱️ 1. Wacht op stilte van minstens 5 seconden
             low_volume_threshold = -40
-            required_silence_duration = 2
+            required_silence_duration = 1
             silence_start_time = None
 
             log("INFO", "Wachten op stilte tussen nummers...")
