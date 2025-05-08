@@ -242,7 +242,7 @@ while True:
 
         # ⏱️ Start loop die volgende track afwacht via stilte
         while True:
-            low_volume_threshold = -50
+            low_volume_threshold = -40
             low_volume_required_seconds = 5
             check_interval = 1
             low_volume_seconds = 0
