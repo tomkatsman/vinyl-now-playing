@@ -139,7 +139,14 @@ def update_now_playing(title, artist, cover, play_offset_ms, duration_ms, source
     }
 
     if tracklist:
-        data["tracklist"] = [clean_title(track["title"]) for track in tracklist]
+        data["tracklist"] = [
+            {
+                "position": track.get("position", ""),
+                "title": clean_title(track.get("title", ""))
+            }
+            for track in tracklist
+            if "title" in track and "position" in track
+        ]
 
     with open(NOW_PLAYING_PATH, "w") as f:
         json.dump(data, f)
