@@ -243,13 +243,14 @@ while True:
     album_data = find_album_and_tracklist(artist, album, collection, title)
 
     if album_data:
+        ...
         current_album = album_data
         current_track_index = find_track_index(title, current_album['tracklist'])
+        last_side = None  # Nieuw toegevoegd voor kant-detectie
         show_current_track(offset, duration)
 
         while True:
             low_volume_threshold = -30
-
             log("INFO", "Monitoren op stilte + volumeherstel...")
 
             # 1. Wacht tot volume onder drempel komt
@@ -280,15 +281,27 @@ while True:
                     log("DEBUG", f"Wachten op volumeherstel... huidig volume: {volume} dBFS")
                 time.sleep(1)
 
-            # ➡️ Ga naar de volgende track
+            # Volgende tracklogica
             current_track_index += 1
             if current_track_index >= len(current_album['tracklist']):
-                log("INFO", "Einde van album bereikt, reset naar luistermodus.")
+                log("INFO", "Einde van album bereikt. Wacht 5 seconden voor nieuwe herkenning...")
                 current_album = None
+                time.sleep(5)
                 break
 
             next_track = current_album['tracklist'][current_track_index]
             duration_str = next_track.get('duration', "").strip()
+
+            # KANT-DETECTIE
+            position = next_track.get('position', '').strip()
+            side_match = re.match(r"([A-Z])", position)
+            current_side = side_match.group(1) if side_match else None
+
+            if last_side and current_side and current_side != last_side:
+                log("INFO", f"Nieuwe kant gedetecteerd: {last_side} → {current_side}. Pauzeer 5 seconden...")
+                time.sleep(5)
+
+            last_side = current_side  # Update de kant
 
             if not duration_str or not re.match(r"^\d+:\d+$", duration_str):
                 log("WARNING", f"Geen geldige duur in Discogs voor '{next_track.get('title', 'Onbekend')}', fallback naar vorige waarde.")
