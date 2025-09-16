@@ -74,21 +74,22 @@ def clean_title(title):
     return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|\bLive\b|Edition|Official Video|\d{4})", "", title or "").strip()
 
 # ---------- Audio I/O ----------
-def capture_stream(duration=10):
+def capture_stream(duration=8):
     cmd = [
-        "ffmpeg",
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
         "-i", ICECAST_URL,
         "-t", str(duration),
-        "-f", "s16le",
+        "-ac", "1",           # mono
+        "-ar", "16000",       # 16kHz
         "-acodec", "pcm_s16le",
-        "-ac", "1",       # mono
-        "-ar", "44100",   # 44.1 kHz
-        "pipe:1"
+        "-f", "wav", "pipe:1"
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    audio_bytes = result.stdout
-    rms = audioop.rms(audio_bytes, 2)
-    return audio_bytes, rms
+    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    wav_bytes = p.stdout
+    if not wav_bytes:
+        log("ERROR", f"ffmpeg produced no audio. stderr: {p.stderr.decode(errors='ignore')}")
+        return b"", None
+    return wav_bytes, None
 
 def get_stream_volume():
     """Return mean_volume (dBFS) via FFmpeg volumedetect, or None if unavailable."""
@@ -116,17 +117,17 @@ def recognize_audio(audio_bytes):
     ).decode()
 
     response = requests.post(
-        f"https://{ACR_HOST}/v1/identify",
-        files={'sample': ('vinyl.wav', audio_bytes)},
-        data={
-            'access_key': ACR_ACCESS_KEY,
-            'sample_bytes': len(audio_bytes),
-            'timestamp': timestamp,
-            'signature': signature,
-            'data_type': 'audio',
-            'signature_version': '1'
-        }
-    )
+    f"https://{ACR_HOST}/v1/identify",
+    files={'sample': ('sample.wav', audio_bytes)},   # <-- real WAV file
+    data={
+        'access_key': ACR_ACCESS_KEY,
+        'sample_bytes': len(audio_bytes),
+        'timestamp': timestamp,
+        'signature': signature,
+        'data_type': 'audio',
+        'signature_version': '1'
+    }
+)
 
     # Log both status and full JSON response
     try:
