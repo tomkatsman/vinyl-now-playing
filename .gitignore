@@ -1,0 +1,16 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Local env files with secrets
+.env
+/etc/default/vinyl
+
+# Runtime output
+*.json
+*.tmp
