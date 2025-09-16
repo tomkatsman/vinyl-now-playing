@@ -74,6 +74,40 @@ def clean_title(title):
     return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|\bLive\b|Edition|Official Video|\d{4})", "", title or "").strip()
 
 # ---------- Audio I/O ----------
+def capture_stream(duration=10):
+    cmd = [
+        "ffmpeg",
+        "-i", ICECAST_URL,
+        "-t", str(duration),
+        "-f", "s16le",
+        "-acodec", "pcm_s16le",
+        "-ac", "1",       # mono
+        "-ar", "44100",   # 44.1 kHz
+        "pipe:1"
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    audio_bytes = result.stdout
+    rms = audioop.rms(audio_bytes, 2)
+    return audio_bytes, rms
+
+def get_stream_volume():
+    """Return mean_volume (dBFS) via FFmpeg volumedetect, or None if unavailable."""
+    try:
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info",
+               "-i", ICECAST_URL, "-t", "2", "-af", "volumedetect", "-f", "null", "-"]
+        r = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
+        for line in r.stderr.split("\n"):
+            if "mean_volume" in line:
+                mv = float(re.search(r"mean_volume: ([\-\d\.]+) dB", line).group(1))
+                log("DEBUG", f"Gemeten volume: {mv} dBFS")
+                return mv
+        log("WARNING", "Kon geen volume meten met FFmpeg.")
+        return None
+    except Exception as e:
+        log("ERROR", f"Fout bij het meten van volume: {e}")
+        return None
+
+# ---------- ACR ----------
 def recognize_audio(audio_bytes):
     timestamp = int(time.time())
     signature_string = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
@@ -104,43 +138,6 @@ def recognize_audio(audio_bytes):
         log("ERROR", f"Failed to parse ACRCloud response: {e}")
         log("ERROR", f"Raw response text: {response.text[:500]}...")
         return {}
-
-def get_stream_volume():
-    """Return mean_volume (dBFS) via FFmpeg volumedetect, or None if unavailable."""
-    try:
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "info",
-               "-i", ICECAST_URL, "-t", "2", "-af", "volumedetect", "-f", "null", "-"]
-        r = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
-        for line in r.stderr.split("\n"):
-            if "mean_volume" in line:
-                mv = float(re.search(r"mean_volume: ([\-\d\.]+) dB", line).group(1))
-                log("DEBUG", f"Gemeten volume: {mv} dBFS")
-                return mv
-        log("WARNING", "Kon geen volume meten met FFmpeg.")
-        return None
-    except Exception as e:
-        log("ERROR", f"Fout bij het meten van volume: {e}")
-        return None
-
-# ---------- ACR ----------
-def recognize_audio(audio_bytes):
-    ts = int(time.time())
-    sig_str = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{ts}"
-    signature = base64.b64encode(hmac.new(ACR_ACCESS_SECRET.encode(), sig_str.encode(), hashlib.sha1).digest()).decode()
-    r = session.post(
-        f"https://{ACR_HOST}/v1/identify",
-        files={'sample': ('vinyl.mp3', audio_bytes)},
-        data={
-            'access_key': ACR_ACCESS_KEY,
-            'sample_bytes': len(audio_bytes),
-            'timestamp': ts,
-            'signature': signature,
-            'data_type': 'audio',
-            'signature_version': '1'
-        },
-        timeout=DEFAULT_TIMEOUT
-    )
-    return r.json()
 
 def extract_metadata(result):
     md = result.get('metadata', {})
