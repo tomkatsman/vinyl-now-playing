@@ -74,22 +74,36 @@ def clean_title(title):
     return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|\bLive\b|Edition|Official Video|\d{4})", "", title or "").strip()
 
 # ---------- Audio I/O ----------
-def capture_stream(duration=10):
-    cmd = [
-        "ffmpeg",
-        "-i", ICECAST_URL,
-        "-t", str(duration),
-        "-f", "s16le",
-        "-acodec", "pcm_s16le",
-        "-ac", "1",       # mono
-        "-ar", "44100",   # 44.1 kHz
-        "pipe:1"
-    ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    audio_bytes = result.stdout
-    rms = audioop.rms(audio_bytes, 2)
-    return audio_bytes, rms
+def recognize_audio(audio_bytes):
+    timestamp = int(time.time())
+    signature_string = f"POST\n/v1/identify\n{ACR_ACCESS_KEY}\naudio\n1\n{timestamp}"
+    signature = base64.b64encode(
+        hmac.new(ACR_ACCESS_SECRET.encode(), signature_string.encode(), hashlib.sha1).digest()
+    ).decode()
 
+    response = requests.post(
+        f"https://{ACR_HOST}/v1/identify",
+        files={'sample': ('vinyl.wav', audio_bytes)},
+        data={
+            'access_key': ACR_ACCESS_KEY,
+            'sample_bytes': len(audio_bytes),
+            'timestamp': timestamp,
+            'signature': signature,
+            'data_type': 'audio',
+            'signature_version': '1'
+        }
+    )
+
+    # Log both status and full JSON response
+    try:
+        result = response.json()
+        log("DEBUG", f"ACRCloud HTTP {response.status_code}")
+        log("DEBUG", f"ACRCloud raw JSON: {json.dumps(result, indent=2)}")
+        return result
+    except Exception as e:
+        log("ERROR", f"Failed to parse ACRCloud response: {e}")
+        log("ERROR", f"Raw response text: {response.text[:500]}...")
+        return {}
 
 def get_stream_volume():
     """Return mean_volume (dBFS) via FFmpeg volumedetect, or None if unavailable."""
