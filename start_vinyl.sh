@@ -12,7 +12,7 @@ DARKICE_CFG="${DARKICE_CFG:-/etc/darkice.cfg}"
 ICECAST_SERVICE="${ICECAST_SERVICE:-icecast2}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
-APP_MAIN="${APP_MAIN:-$APP_DIR/main.py}"
+APP_MAIN="${APP_MAIN:-$APP_DIR/src/main.py}"
 
 echo "[INFO] App dir: $APP_DIR"
 echo "[INFO] Using darkice cfg: $DARKICE_CFG"
