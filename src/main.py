@@ -73,6 +73,21 @@ def _post_json(url, payload):
 def clean_title(title):
     return re.sub(r"(\[.*?\]|\(.*?\)|Remaster|Deluxe|\bLive\b|Edition|Official Video|\d{4})", "", title or "").strip()
 
+# Flip only status/code while preserving last metadata
+def set_playing_status(is_playing: bool, code: int):
+    try:
+        data = {}
+        if os.path.exists(NOW_PLAYING_PATH):
+            with open(NOW_PLAYING_PATH, "r") as f:
+                data = json.load(f)
+        data["status"] = is_playing
+        data["code"] = code
+        _atomic_write(NOW_PLAYING_PATH, data)
+        log("INFO", f"Status -> {is_playing} ({code})")
+        _post_json(NOW_PLAYING_POST_URL, data)
+    except Exception as e:
+        log("WARNING", f"Couldn't write status: {e}")
+
 # ---------- Audio I/O ----------
 def capture_stream(duration=8):
     cmd = [
@@ -117,19 +132,19 @@ def recognize_audio(audio_bytes):
     ).decode()
 
     response = requests.post(
-    f"https://{ACR_HOST}/v1/identify",
-    files={'sample': ('sample.wav', audio_bytes)},   # <-- real WAV file
-    data={
-        'access_key': ACR_ACCESS_KEY,
-        'sample_bytes': len(audio_bytes),
-        'timestamp': timestamp,
-        'signature': signature,
-        'data_type': 'audio',
-        'signature_version': '1'
-    }
-)
+        f"https://{ACR_HOST}/v1/identify",
+        files={'sample': ('sample.wav', audio_bytes)},
+        data={
+            'access_key': ACR_ACCESS_KEY,
+            'sample_bytes': len(audio_bytes),
+            'timestamp': timestamp,
+            'signature': signature,
+            'data_type': 'audio',
+            'signature_version': '1'
+        },
+        timeout=DEFAULT_TIMEOUT
+    )
 
-    # Log both status and full JSON response
     try:
         result = response.json()
         log("DEBUG", f"ACRCloud HTTP {response.status_code}")
@@ -259,15 +274,16 @@ def main():
     while not _stop:
         volume = get_stream_volume()
         if volume is None:
-            update_now_playing(status=False, code=503)
+            set_playing_status(False, 503)
             time.sleep(5)
             continue
 
+        # NOTE: -45 dBFS as requested
         if volume < -45:
             if not was_silent:
                 log("INFO", "Stilte gedetecteerd. Wachten op nieuwe track…")
             was_silent = True
-            update_now_playing(status=False, code=204)
+            set_playing_status(False, 204)   # <-- only flip status/code
             time.sleep(2)
             continue
 
@@ -275,17 +291,17 @@ def main():
             log("INFO", "Volumeherstel na stilte — nieuwe track vermoedelijk gestart.")
             was_silent = False
 
-        update_now_playing(status=True, code=200)  # heartbeat
+        set_playing_status(True, 200)  # heartbeat while active
 
         # Recognize
         log("INFO", "Start herkenning via ACRCloud…")
-        pcm, rms = capture_stream(10)
-        if not pcm:
+        sample, _ = capture_stream(10)
+        if not sample:
             time.sleep(4)
             continue
 
         try:
-            result = recognize_audio(pcm)
+            result = recognize_audio(sample)
         except Exception as e:
             log("WARNING", f"ACRCloud error: {e}")
             time.sleep(4)
@@ -315,6 +331,7 @@ def main():
                     time.sleep(1); continue
                 if v < low_threshold:
                     log("INFO", f"Stilte: {v} dBFS. Wachten op volgende track…")
+                    set_playing_status(False, 204)  # <-- update during inter-track silence
                     break
                 time.sleep(1)
 
@@ -327,6 +344,7 @@ def main():
                     time.sleep(1); continue
                 if v > low_threshold:
                     log("INFO", f"Herstel: {v} dBFS. Volgende track.")
+                    set_playing_status(True, 200)   # <-- flip back on resume
                     break
                 time.sleep(1)
 
@@ -337,7 +355,7 @@ def main():
             if current_track_index >= len(current_album['tracklist']):
                 log("INFO", "Einde album — nieuwe herkenning volgt.")
                 current_album = None
-                update_now_playing(status=False, code=204)
+                set_playing_status(False, 204)
                 time.sleep(5)
                 break
 
