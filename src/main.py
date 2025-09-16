@@ -75,21 +75,21 @@ def clean_title(title):
 
 # ---------- Audio I/O ----------
 def capture_stream(duration=10):
-    """Decode to raw PCM (s16le, 44.1kHz, stereo) and compute RMS correctly."""
     cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "ffmpeg",
         "-i", ICECAST_URL,
         "-t", str(duration),
-        "-f", "s16le", "-acodec", "pcm_s16le", "-ac", "2", "-ar", "44100", "pipe:1",
+        "-f", "s16le",
+        "-acodec", "pcm_s16le",
+        "-ac", "1",       # mono
+        "-ar", "44100",   # 44.1 kHz
+        "pipe:1"
     ]
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    pcm = p.stdout
-    if not pcm:
-        log("WARNING", f"FFmpeg returned no PCM. stderr: {p.stderr.decode(errors='ignore')[:200]}")
-        return b"", None
-    rms = audioop.rms(pcm, 2)
-    log("DEBUG", f"Captured {len(pcm)} bytes PCM, RMS={rms}")
-    return pcm, rms
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    audio_bytes = result.stdout
+    rms = audioop.rms(audio_bytes, 2)
+    return audio_bytes, rms
+
 
 def get_stream_volume():
     """Return mean_volume (dBFS) via FFmpeg volumedetect, or None if unavailable."""
@@ -251,7 +251,7 @@ def main():
             time.sleep(5)
             continue
 
-        if volume < -50:
+        if volume < -45:
             if not was_silent:
                 log("INFO", "Stilte gedetecteerd. Wachten op nieuwe track…")
             was_silent = True
