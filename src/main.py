@@ -30,7 +30,7 @@ DISCOGS_TOKEN     = os.environ["DISCOGS_TOKEN"]
 ICECAST_URL       = os.getenv("ICECAST_URL", "http://localhost:8000/vinyl.mp3")
 NOW_PLAYING_PATH  = os.getenv(
     "NOW_PLAYING_PATH",
-    os.path.join(os.path.dirname(__file__), "../web/now_playing.json"),
+    os.path.join(os.path.dirname(__file__), "now_playing.json"),
 )
 NOW_PLAYING_POST_URL = os.getenv("NOW_PLAYING_POST_URL")  # optional: push to your API
 
@@ -54,7 +54,7 @@ def log(level, message):
     print(f"[{level}] {ts} {message}", flush=True)
 
 def _atomic_write(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f)
@@ -242,7 +242,7 @@ def main():
 
     collection = fetch_discogs_collection()
     was_silent = False
-    low_threshold = -30  # dBFS for silence detection between tracks
+    low_threshold = -30  # dBFS for inter-track silence
 
     while not _stop:
         volume = get_stream_volume()
@@ -263,7 +263,7 @@ def main():
             log("INFO", "Volumeherstel na stilte — nieuwe track vermoedelijk gestart.")
             was_silent = False
 
-        update_now_playing(status=True, code=200)  # heartbeat for HA/tvOS
+        update_now_playing(status=True, code=200)  # heartbeat
 
         # Recognize
         log("INFO", "Start herkenning via ACRCloud…")
@@ -325,7 +325,7 @@ def main():
             if current_track_index >= len(current_album['tracklist']):
                 log("INFO", "Einde album — nieuwe herkenning volgt.")
                 current_album = None
-                update_now_playing(status=False, code=204)  # idle until next detection
+                update_now_playing(status=False, code=204)
                 time.sleep(5)
                 break
 

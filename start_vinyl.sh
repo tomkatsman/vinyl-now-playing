@@ -1,72 +1,45 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Update & install system packages
-sudo apt-get update
-sudo apt-get install -y darkice icecast2 python3 python3-venv
+# Auto-load env (local .env or systemd-style /etc/default/vinyl)
+if [ -f "/etc/default/vinyl" ]; then
+  set -a; source /etc/default/vinyl; set +a
+elif [ -f ".env" ]; then
+  set -a; source ./.env; set +a
+fi
 
-# Copy darkice config
-sudo cp darkice/darkice.cfg /etc/darkice.cfg
+DARKICE_CFG="${DARKICE_CFG:-/etc/darkice.cfg}"
+ICECAST_SERVICE="${ICECAST_SERVICE:-icecast2}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+APP_DIR="${APP_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+APP_MAIN="${APP_MAIN:-$APP_DIR/main.py}"
 
-# Create and set up Python virtual environment
-cd /home/tom2w/vinyl-now-playing
-python3 -m venv venv
-source venv/bin/activate
+echo "[INFO] App dir: $APP_DIR"
+echo "[INFO] Using darkice cfg: $DARKICE_CFG"
 
-# Install Python dependencies
-venv/bin/pip install flask requests
+# 1) Detect capture card (first CAPTURE device)
+CARD_LINE=$(arecord -l | awk '/CAPTURE/{p=1} p && /card [0-9]+:/ {print; exit}')
+if [[ -z "${CARD_LINE:-}" ]]; then
+  echo "[ERROR] No capture devices found (arecord -l)"; exit 1
+fi
+CARD_IDX=$(echo "$CARD_LINE" | sed -n 's/.*card \([0-9]\+\).*/\1/p')
+ALSA_DEV="plughw:${CARD_IDX},0"
+echo "[INFO] Using ALSA device: $ALSA_DEV"
 
-# Create systemd service for DarkIce
-sudo tee /etc/systemd/system/vinyl-stream.service > /dev/null <<EOF
-[Unit]
-Description=Vinyl Streamer (DarkIce)
-After=sound.target
+# 2) Patch darkice.cfg (device + required keys)
+sudo sed -i "s|^device *=.*|device = ${ALSA_DEV}|g" "$DARKICE_CFG"
+sudo sed -i 's/^bitrateMode *= *.*/bitrateMode = cbr/' "$DARKICE_CFG"
+grep -q '^username' "$DARKICE_CFG" || echo 'username = source' | sudo tee -a "$DARKICE_CFG" >/dev/null
 
-[Service]
-ExecStart=/usr/bin/darkice -c /etc/darkice.cfg
-Restart=always
+# 3) Start Icecast (if installed)
+if systemctl list-unit-files | grep -q "^${ICECAST_SERVICE}.service"; then
+  sudo systemctl start "$ICECAST_SERVICE"
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# 4) Start DarkIce (kill existing)
+sudo pkill -f '^darkice' || true
+sudo darkice -c "$DARKICE_CFG" &
 
-# Create systemd service for Now Playing recognition (ACRCloud versie)
-sudo tee /etc/systemd/system/vinyl-now-playing.service > /dev/null <<EOF
-[Unit]
-Description=Vinyl Now Playing Metadata Service
-After=network.target
-
-[Service]
-WorkingDirectory=/home/tom2w/vinyl-now-playing
-ExecStart=/home/tom2w/vinyl-now-playing/venv/bin/python /home/tom2w/vinyl-now-playing/python/main.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create systemd service for the webserver
-sudo tee /etc/systemd/system/vinyl-web.service > /dev/null <<EOF
-[Unit]
-Description=Vinyl Now Playing Web Server
-After=network.target
-
-[Service]
-WorkingDirectory=/home/tom2w/vinyl-now-playing
-ExecStart=/home/tom2w/vinyl-now-playing/venv/bin/python /home/tom2w/vinyl-now-playing/python/webserver.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable & start all services
-sudo systemctl enable vinyl-stream
-sudo systemctl enable vinyl-now-playing
-sudo systemctl enable vinyl-web
-
-sudo systemctl start vinyl-stream
-sudo systemctl start vinyl-now-playing
-sudo systemctl start vinyl-web
-
-echo "Installation complete! Visit http://<your-pi-ip>:5000 to see the Now Playing page."
+# 5) Start Python app
+cd "$APP_DIR"
+exec "$PYTHON_BIN" "$APP_MAIN"
